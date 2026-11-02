@@ -76,7 +76,7 @@ No CI: omit `required_status_checks` and tell the user. The check name must be *
   "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]
 }
 ```
-The `creation` rule (only Admin creates release tags) is **optional**. Propose it and apply only after confirmation. If a workflow or App creates the tags (release-please, semantic-release, changesets), it must be added to the bypass list.
+Add the `creation` rule (`{"type": "creation"}`, so only Admin creates release tags) unless the user declined it in the go-ahead. If a workflow or App creates the tags (release-please, semantic-release, changesets), add it to `bypass_actors` (an App as `Integration` with its app id; `GITHUB_TOKEN` workflows cannot bypass, so they need an App or a deploy key) before enabling the rule. Otherwise the next release fails.
 
 ## publish.env — publish environment restricted to release tags
 ```bash
@@ -100,7 +100,7 @@ On a **private** repo on the Free plan, environments with policies may be unavai
 Rulesets, classic branch protection, tag protection and environment branch policies return `403 Upgrade to GitHub Pro or make this repository public`. The audit marks them `n/a`. Report the limit, keep `hooks.protect-branch` as the only branch guard, and offer the options (make public, upgrade, accept the gap). Dependabot, CI and pinned actions still work. **Skip `automerge`**: auto-merge is unavailable there, and its checklist condition (required CI checks) cannot be met.
 
 ## classic-protection
-If classic branch protection exists, show its content and ask whether to migrate it into the ruleset and delete it (`gh api -X DELETE repos/$R/branches/$B/protection`). Delete only after confirmation.
+If classic branch protection exists, show its content and carry every rule the ruleset lacks into it (required checks, approvals, linear history). Then delete it with `gh api -X DELETE repos/$R/branches/$B/protection`, unless the user chose "keep" or "leave alone" in the go-ahead. Delete only after the ruleset GET shows the migrated rules.
 
 ## Final validation
 ```bash

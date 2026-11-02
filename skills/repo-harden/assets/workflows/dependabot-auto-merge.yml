@@ -1,7 +1,9 @@
 # INVARIANTS (keep when adapting):
 # - pull_request_target with no checkout: PR code is never executed
 # - guarded by repo name, bot author and same-repo head
-# - only the security-patch-minor group, only semver patch/minor
+# - never semver-major
+# Scope is a go-ahead decision (default below: security-patch-minor group, patch/minor;
+# alternatives: + any patch, + any patch/minor -> relax the dependency-group condition).
 # - gh pr merge --auto --match-head-commit
 name: Dependabot auto-merge
 

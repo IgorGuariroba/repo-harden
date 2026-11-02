@@ -73,7 +73,7 @@ scanners=$(for s in gitleaks trufflehog detect-secrets ggshield; do has "$s" && 
 if grep -qE 'gitleaks|trufflehog|detect-secrets|ggshield' $hookfiles 2>/dev/null; then
   row hooks.secrets ok "scanner wired into hooks"
 else
-  row hooks.secrets missing "optional; installed scanners: [${scanners% }] (confirm with the user)"
+  row hooks.secrets missing "installed scanners: [${scanners% }] (default: install the ecosystem's scanner unless declined)"
 fi
 
 # ---------- local: dependency vulnerabilities ----------
@@ -194,7 +194,7 @@ if [ -n "$publish_wfs" ]; then
     [ -z "$issues" ] && row "publish.oidc:$pub" ok "env=$e" || row "publish.oidc:$pub" drift "$issues"
   done
 elif [ -n "$publishable" ]; then
-  row publish.oidc missing "no publish workflow; candidates: [$publishable] (? = confirm the project is meant to be published)"
+  row publish.oidc missing "no publish workflow; candidates: [$publishable] (? = published by default unless the user declines)"
 else
   row publish.oidc n/a "nothing publishable detected"
 fi

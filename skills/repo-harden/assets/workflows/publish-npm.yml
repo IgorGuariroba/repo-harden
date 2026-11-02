@@ -1,5 +1,6 @@
 # INVARIANTS (keep for any registry; swap only setup/build/publish steps):
-# - trigger release: published, prereleases skipped
+# Trigger is a go-ahead decision (default below: release published, prereleases skipped;
+# alternative: push of tags v*, tag from github.ref_name).
 # - environment: <publish env>; permissions: contents: read, id-token: write
 # - checkout of the release tag with persist-credentials: false
 # - tag is in default-branch history and equals v + version
