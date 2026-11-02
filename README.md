@@ -24,7 +24,7 @@ The checklist is a set of **goals with acceptance criteria** ([`checklist.md`](s
 | Item | Goal |
 |---|---|
 | `hooks.protect-branch` | `pre-commit`/`pre-push` block direct commits and pushes to `main`/`master` |
-| `hooks.secrets` | optional pre-commit secret scan (gitleaks, trufflehog…) |
+| `hooks.secrets` | pre-commit secret scan (gitleaks, detect-secrets…), on by default |
 | `deps.vulns` | 0 known vulnerabilities (`npm audit`, `pip-audit`, `govulncheck`, `cargo audit`…) |
 | `deps.bot` | Dependabot/Renovate for every ecosystem + CI actions, security fixes grouped |
 | `ci.pipeline` | CI on every PR with a fixed job name and read-only token |
