@@ -15,7 +15,7 @@ gh api -X PATCH repos/$R \
 ```
 
 ## secrets.scanning
-Send only the keys that are `missing`; `n/a` keys are unavailable on this plan/visibility, so cover them with the fallback (a secret-scanner CI job such as gitleaks, made a required check, plus `hooks.secrets`). On private/internal repos, secret scanning requires GitHub Secret Protection. If the API refuses, report the exact error and point to Settings → Code security.
+Send only the keys that are `missing` with a plain status (e.g. `disabled`). A key whose detail starts with `unavailable` cannot be enabled: it needs the fallback instead (a secret-scanner job in a `pull_request` workflow, such as gitleaks, made a required check on the default branch, plus `hooks.secrets`); once that is in place the audit reports it `n/a` (fallback covered). On private/internal repos, secret scanning requires GitHub Secret Protection. Generic (non-provider) patterns exist only on organization-owned repos: on a user-owned repo GitHub reports them `disabled` and a PATCH returns 200 without enabling them (silent refusal). If the API refuses, report the exact error and point to Settings → Code security.
 ```bash
 jq -n '{security_and_analysis:{
   secret_scanning:{status:"enabled"},

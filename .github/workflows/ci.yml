@@ -28,6 +28,9 @@ jobs:
       - name: Hook behavior
         run: skills/repo-harden/scripts/test-hooks.sh skills/repo-harden/assets/githooks
 
+      - name: Audit secrets.scanning rows
+        run: skills/repo-harden/scripts/test-audit-secrets.sh
+
       - name: Audit IDs defined in checklist
         run: skills/repo-harden/scripts/test-checklist-ids.sh
 

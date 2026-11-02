@@ -232,21 +232,6 @@ chk merge.squash/delete_branch delete_branch_on_merge true
 chk merge.squash/update_branch allow_update_branch true
 chk merge.squash/auto_merge allow_auto_merge true
 
-if [ "$(api "repos/$path/automated-security-fixes" | jq -r '.enabled // false')" = true ]; then
-  row secrets.scanning/dependabot_security_updates ok enabled
-else
-  row secrets.scanning/dependabot_security_updates missing disabled
-fi
-sa=$(jq '.security_and_analysis // {}' <<<"$meta")
-for k in secret_scanning secret_scanning_non_provider_patterns secret_scanning_push_protection; do
-  v=$(jq -r ".$k.status // \"unavailable\"" <<<"$sa")
-  case $v in
-    enabled) row "secrets.scanning/$k" ok enabled ;;
-    unavailable) row "secrets.scanning/$k" n/a "unavailable for this visibility/plan (private repos need GitHub Secret Protection); fallback: secret scanner as required CI job + hooks.secrets" ;;
-    *) row "secrets.scanning/$k" missing "$v" ;;
-  esac
-done
-
 branch_rs=""; tag_rs=""; rulesets_ok=1
 rs_list=$(gh api "repos/$path/rulesets?includes_parents=false" 2>/dev/null)
 if ! jq -e 'type=="array"' <<<"$rs_list" >/dev/null 2>&1; then
@@ -261,6 +246,48 @@ for id in $(jq -r 'if type=="array" then .[].id else empty end' <<<"$rs_list" 2>
   inc=$(jq -r '.conditions.ref_name.include | join(",")' <<<"$rs")
   if [ "$tgt" = branch ] && grep -qE "~DEFAULT_BRANCH|refs/heads/$default_branch" <<<"$inc"; then branch_rs=$rs; fi
   if [ "$tgt" = tag ] && grep -qE 'refs/tags/v\*|~ALL' <<<"$inc"; then tag_rs=$rs; fi
+done
+
+# secrets.scanning: native settings, or the fallback (secret scanner in a PR workflow, required on the default branch)
+if [ "$(api "repos/$path/automated-security-fixes" | jq -r '.enabled // false')" = true ]; then
+  row secrets.scanning/dependabot_security_updates ok enabled
+else
+  row secrets.scanning/dependabot_security_updates missing disabled
+fi
+# jobs (check-run names) of PR workflows that run a secret scanner
+fb_jobs=$(for f in $ci_files; do awk '
+  /^jobs:/ { inj=1; next }
+  inj && /^[^ #]/ { inj=0 }
+  inj && /^  [A-Za-z0-9_-]+:/ { if (job != "" && hit) print (name != "" ? name : job); job=$1; sub(/:.*/, "", job); name=""; hit=0; next }
+  inj && /^    name:/ { n=$0; sub(/^    name:[ ]*/, "", n); gsub(/^["\047]|["\047]$/, "", n); name=n }
+  inj && /gitleaks|trufflehog|detect-secrets|ggshield/ { hit=1 }
+  END { if (job != "" && hit) print (name != "" ? name : job) }' "$f"; done | sort -u)
+fb_list=$(paste -sd',' - <<<"$fb_jobs")
+fb_ok=0
+if [ -z "$fb_jobs" ]; then
+  fb="fallback missing: no pull_request workflow runs a secret scanner (gitleaks, trufflehog…)"
+elif [ $rulesets_ok = 0 ]; then
+  fb_ok=1; fb="fallback covered: job [$fb_list] present (rulesets unavailable, cannot be required)"
+else
+  req=""; hit=""
+  [ -n "$branch_rs" ] && req=$(jq -r '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context' <<<"$branch_rs")
+  while IFS= read -r j; do grep -qxF -- "$j" <<<"$req" && hit="$j"; done <<<"$fb_jobs"
+  if [ -n "$hit" ]; then fb_ok=1; fb="fallback covered: job '$hit' is a required check"
+  else fb="fallback missing: job [$fb_list] present, not required on $default_branch"; fi
+fi
+owner_type=$(jq -r '.owner.type' <<<"$meta")
+sa=$(jq '.security_and_analysis // {}' <<<"$meta")
+for k in secret_scanning secret_scanning_non_provider_patterns secret_scanning_push_protection; do
+  v=$(jq -r ".$k.status // \"unavailable\"" <<<"$sa")
+  why=""
+  [ "$v" = unavailable ] && why="unavailable for this visibility/plan (private repos need GitHub Secret Protection)"
+  # GitHub reports generic patterns as "disabled" on user-owned repos and a PATCH is a silent refusal:
+  # they exist only on organization-owned repos (docs.github.com/en/code-security/secret-scanning/using-advanced-secret-scanning-and-push-protection-features/non-provider-patterns)
+  [ "$k" = secret_scanning_non_provider_patterns ] && [ "$v" != enabled ] && [ "$owner_type" = User ] && why="unavailable on user-owned repos (organization-only)"
+  if [ "$v" = enabled ]; then row "secrets.scanning/$k" ok enabled
+  elif [ -z "$why" ]; then row "secrets.scanning/$k" missing "$v"
+  elif [ $fb_ok = 1 ]; then row "secrets.scanning/$k" n/a "$why; $fb"
+  else row "secrets.scanning/$k" missing "$why; $fb"; fi
 done
 
 if [ $rulesets_ok = 0 ]; then :

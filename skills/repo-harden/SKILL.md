@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires git, bash and jq. GitHub automation needs gh authenticated with repo admin; other hosts use their CLI/API when available.
 metadata:
   author: IgorGuariroba
-  version: "3.0.0"
+  version: "3.1.0"
 ---
 
 # repo-harden
@@ -83,6 +83,8 @@ Skip this step when no file item is pending.
 - **Other platforms:** `references/other-platforms.md` §2. Show each call before running it.
 
 Add required checks only after CI has run on the PR, and take the exact check names from the real check-runs. Wait with `gh pr checks <n> --watch --fail-fast`, the platform equivalent, or your harness's background watch.
+
+After each call, re-read the setting. A success response whose re-read value is unchanged is a **silent refusal**: treat it as a refusal and record `accepted but not applied: <key>=<value read>` as its error.
 
 An API refusal (plan, license, visibility) does not abort the run: record the exact error, mark the item `n/a`, apply the documented fallback, and continue.
 
