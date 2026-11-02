@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [{{DEFAULT_BRANCH}}]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: {{CHECKOUT}}
+        with:
+          persist-credentials: false
+
+      - uses: {{SETUP_NODE}}
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      # {{VALIDATION_STEPS}}: one "- run: npm run <script>" per existing script (typecheck, lint, test, build)
+      # npm pack --dry-run only for publishable packages (private != true)
+      - run: npm pack --dry-run
