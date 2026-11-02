@@ -1,3 +1,8 @@
+# INVARIANTS (keep when adapting to another stack):
+# - runs on pull_request and on pushes to the default branch
+# - read-only token (permissions: contents: read), persist-credentials: false
+# - fixed job `name:`: the ruleset requires this literal check name
+# - runs the project's real install + validation commands
 name: CI
 
 on:

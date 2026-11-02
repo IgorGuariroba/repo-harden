@@ -1,3 +1,9 @@
+# INVARIANTS (keep for any registry; swap only setup/build/publish steps):
+# - trigger release: published, prereleases skipped
+# - environment: <publish env>; permissions: contents: read, id-token: write
+# - checkout of the release tag with persist-credentials: false
+# - tag is in default-branch history and equals v + version
+# - validation runs before publish; no registry token secrets
 name: Publish to npm
 
 on:
