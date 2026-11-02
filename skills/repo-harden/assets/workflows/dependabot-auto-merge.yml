@@ -1,3 +1,8 @@
+# INVARIANTS (keep when adapting):
+# - pull_request_target with no checkout: PR code is never executed
+# - guarded by repo name, bot author and same-repo head
+# - only the security-patch-minor group, only semver patch/minor
+# - gh pr merge --auto --match-head-commit
 name: Dependabot auto-merge
 
 on:

@@ -97,7 +97,7 @@ gh api repos/$R/environments/$ENV/deployment-branch-policies --jq '.branch_polic
 On a **private** repo on the Free plan, environments with policies may be unavailable. In that case, report it and move on.
 
 ## Plan limits (private repos on GitHub Free)
-Rulesets, classic branch protection, tag protection and environment branch policies return `403 Upgrade to GitHub Pro or make this repository public`. The audit marks them `n/a`. Report the limit, keep `hooks.protect-branch` as the only branch guard, and offer the options (make public, upgrade, accept the gap). Dependabot, CI and pinned actions still work. **Skip `automerge`**: auto-merge is unavailable there, and without required checks `gh pr merge --auto` would merge before CI finishes.
+Rulesets, classic branch protection, tag protection and environment branch policies return `403 Upgrade to GitHub Pro or make this repository public`. The audit marks them `n/a`. Report the limit, keep `hooks.protect-branch` as the only branch guard, and offer the options (make public, upgrade, accept the gap). Dependabot, CI and pinned actions still work. **Skip `automerge`**: auto-merge is unavailable there, and its checklist condition (required CI checks) cannot be met.
 
 ## classic-protection
 If classic branch protection exists, show its content and ask whether to migrate it into the ruleset and delete it (`gh api -X DELETE repos/$R/branches/$B/protection`). Delete only after confirmation.

@@ -25,8 +25,11 @@ jobs:
       - name: ShellCheck
         run: shellcheck -S warning skills/repo-harden/scripts/*.sh skills/repo-harden/assets/githooks/*
 
-      - name: Hook behavior (6 cases)
+      - name: Hook behavior
         run: skills/repo-harden/scripts/test-hooks.sh skills/repo-harden/assets/githooks
+
+      - name: Audit IDs defined in checklist
+        run: skills/repo-harden/scripts/test-checklist-ids.sh
 
       - name: No unresolved template placeholders outside assets
         run: "! grep -rn '{{' skills/repo-harden --include=*.sh"
