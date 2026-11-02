@@ -77,13 +77,37 @@ else
 fi
 
 # ---------- local: dependency vulnerabilities ----------
+npm_audit_row() { # dir detail-suffix
+  local v
+  v=$(cd "$1" && npm audit --json 2>/dev/null | jq -r '.metadata.vulnerabilities.total // "?"')
+  [ "$v" = 0 ] && row deps.vulns:node ok "npm audit: 0$2" || row deps.vulns:node missing "npm audit: $v vulnerabilities$2"
+}
 for e in $eco; do
   case $e in
     node)
-      if [ -f package-lock.json ] && has npm; then
-        v=$(npm audit --json 2>/dev/null | jq -r '.metadata.vulnerabilities.total // "?"')
-        [ "$v" = 0 ] && row deps.vulns:node ok "npm audit: 0" || row deps.vulns:node missing "npm audit: $v vulnerabilities"
-      else row deps.vulns:node verify "no package-lock.json or npm (other lockfile? use its audit)"; fi ;;
+      other_lock=$(ls yarn.lock pnpm-lock.yaml bun.lock bun.lockb 2>/dev/null | head -1)
+      if [ ! -f package.json ]; then
+        row deps.vulns:node verify "no package.json at the root: audit each package"
+      elif ! jq -e '[.dependencies, .devDependencies, .optionalDependencies, .workspaces] | map(. // {} | length) | add > 0' package.json >/dev/null 2>&1; then
+        row deps.vulns:node n/a "no installable deps (only peerDependencies or none)"
+      elif ! has npm; then
+        row deps.vulns:node verify "npm not installed"
+      elif [ -f package-lock.json ]; then
+        npm_audit_row "$PWD" ""
+      elif [ -n "$other_lock" ]; then
+        row deps.vulns:node verify "$other_lock: use its package manager's audit"
+      else
+        # no lockfile: generate one in a temp copy of the manifests, never in the repository
+        lockdir=$(mktemp -d)
+        git ls-files -z -- package.json '*/package.json' .npmrc | grep -zvE '(^|/)node_modules/' |
+          while IFS= read -r -d '' f; do mkdir -p "$lockdir/$(dirname "$f")" && cp "$f" "$lockdir/$f"; done
+        if (cd "$lockdir" && npm install --package-lock-only --ignore-scripts --no-audit --no-fund >/dev/null 2>&1); then
+          npm_audit_row "$lockdir" " (no lockfile; generated with npm install --package-lock-only in a temp copy)"
+        else
+          row deps.vulns:node verify "no lockfile and could not generate one (npm install --package-lock-only failed)"
+        fi
+        rm -rf "$lockdir"
+      fi ;;
     go)
       if has govulncheck; then
         govulncheck ./... >/dev/null 2>&1 && row deps.vulns:go ok "govulncheck clean" || row deps.vulns:go missing "govulncheck reported findings (or failed)"

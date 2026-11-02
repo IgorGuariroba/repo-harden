@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires git, bash and jq. GitHub automation needs gh authenticated with repo admin; other hosts use their CLI/API when available.
 metadata:
   author: IgorGuariroba
-  version: "3.1.0"
+  version: "3.1.1"
 ---
 
 # repo-harden
