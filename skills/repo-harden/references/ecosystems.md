@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | Markers | `package.json` | `pyproject.toml`, `setup.py`, `requirements*.txt`, `Pipfile`, `uv.lock` | `go.mod` | `Cargo.toml` |
 | Dependabot `package-ecosystem` | `npm` | `uv` if `uv.lock`, else `pip` | `gomod` | `cargo` |
-| Vulnerability audit (exit ≠ 0 on findings) | `npm audit` / `npm audit fix` | `pip-audit` (or `uvx pip-audit`) | `govulncheck ./...` | `cargo audit` (or `cargo deny check advisories`) |
+| Vulnerability audit (exit ≠ 0 on findings) | `npm audit` / `npm audit fix`; no installable deps (only `peerDependencies`) → `n/a`; deps without a lockfile → `audit.sh` audits a lockfile generated in a temp copy (fix by raising ranges in `package.json`) | `pip-audit` (or `uvx pip-audit`) | `govulncheck ./...` | `cargo audit` (or `cargo deny check advisories`) |
 | Secret scanner (`hooks.secrets` default) | `gitleaks` (`gitleaks git --staged`); via the hook manager when there is one, else the system package manager | `detect-secrets` as a dev dependency or a `pre-commit` framework hook (`detect-secrets-hook --baseline .secrets.baseline`) | `gitleaks` (`gitleaks git --staged`); system package manager or `go install github.com/zricethezav/gitleaks/v8@latest` | `gitleaks` (`gitleaks git --staged`); system package manager |
 | CI setup action | `actions/setup-node` (`cache: npm`) | `actions/setup-python` or `astral-sh/setup-uv` | `actions/setup-go` (`go-version-file: go.mod`) | `rustup` is preinstalled on GitHub runners; cache optional |
 | Install + validation | `npm ci` + scripts `typecheck`/`lint`/`test`/`build` | `uv sync` / `pip install -e .[dev]` + `pytest`, `ruff`, `mypy` if configured | `go vet ./...`, `go test ./...` | `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` |
