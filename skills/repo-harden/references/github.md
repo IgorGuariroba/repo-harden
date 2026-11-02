@@ -1,4 +1,4 @@
-# `gh api` recipes per item
+# GitHub adapter: `gh api` recipes per checklist item
 
 `R=<owner/repo>`, `B=<default branch>`. Every ruleset PUT sends the **whole** ruleset: GET it, change only what is needed with `jq`, and strip the read-only fields.
 
@@ -6,7 +6,7 @@
 strip='del(.id,.node_id,.source,.source_type,.created_at,.updated_at,._links,.current_user_can_bypass)'
 ```
 
-## repo.* — squash-only merges, auto-merge, update branch
+## merge.squash
 ```bash
 gh api -X PATCH repos/$R \
   -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false \
@@ -14,8 +14,8 @@ gh api -X PATCH repos/$R \
   -F delete_branch_on_merge=true -F allow_auto_merge=true -F allow_update_branch=true
 ```
 
-## sec.* — Dependabot security updates and secret scanning
-Send only the keys that are `missing`. On private/internal repos, secret scanning requires GitHub Secret Protection. If the API refuses, report the exact error and point to Settings → Code security.
+## secrets.scanning
+Send only the keys that are `missing`; `n/a` keys are unavailable on this plan/visibility, so cover them with the fallback (a secret-scanner CI job such as gitleaks, made a required check, plus `hooks.secrets`). On private/internal repos, secret scanning requires GitHub Secret Protection. If the API refuses, report the exact error and point to Settings → Code security.
 ```bash
 jq -n '{security_and_analysis:{
   secret_scanning:{status:"enabled"},
@@ -25,7 +25,7 @@ jq -n '{security_and_analysis:{
 gh api -X PUT repos/$R/automated-security-fixes      # dependabot_security_updates
 ```
 
-## ruleset.branch — `default-branch: protection`
+## protect.branch — ruleset `default-branch: protection`
 Check `context` and `integration_id`: take them from the check-runs of the latest green commit on the default branch, or of this run's PR.
 ```bash
 gh api repos/$R/commits/<sha>/check-runs --jq '.check_runs[] | {name, app_id: .app.id, conclusion}'
@@ -65,7 +65,7 @@ gh api repos/$R/rulesets/$ID | jq "$strip"' |
 ```
 No CI: omit `required_status_checks` and tell the user. The check name must be **identical** to the job's `name:`.
 
-## ruleset.tags — `tags: release`
+## protect.tags — ruleset `tags: release`
 ```json
 {
   "name": "tags: release",
@@ -78,7 +78,7 @@ No CI: omit `required_status_checks` and tell the user. The check name must be *
 ```
 The `creation` rule (only Admin creates release tags) is **optional**. Propose it and apply only after confirmation. If a workflow or App creates the tags (release-please, semantic-release, changesets), it must be added to the bypass list.
 
-## env.* — publish environment restricted to release tags
+## publish.env — publish environment restricted to release tags
 ```bash
 # 1) PUT keeping existing reviewers and wait_timer
 gh api repos/$R/environments/$ENV 2>/dev/null | jq '{
@@ -95,6 +95,9 @@ gh api repos/$R/environments/$ENV/deployment-branch-policies --jq '.branch_polic
 | xargs -r -I{} gh api -X DELETE repos/$R/environments/$ENV/deployment-branch-policies/{}
 ```
 On a **private** repo on the Free plan, environments with policies may be unavailable. In that case, report it and move on.
+
+## Plan limits (private repos on GitHub Free)
+Rulesets, classic branch protection, tag protection and environment branch policies return `403 Upgrade to GitHub Pro or make this repository public`. The audit marks them `n/a`. Report the limit, keep `hooks.protect-branch` as the only branch guard, and offer the options (make public, upgrade, accept the gap). Dependabot, CI and pinned actions still work. **Skip `automerge`**: auto-merge is unavailable there, and without required checks `gh pr merge --auto` would merge before CI finishes.
 
 ## classic-protection
 If classic branch protection exists, show its content and ask whether to migrate it into the ruleset and delete it (`gh api -X DELETE repos/$R/branches/$B/protection`). Delete only after confirmation.

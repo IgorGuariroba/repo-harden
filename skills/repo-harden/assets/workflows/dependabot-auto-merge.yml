@@ -24,9 +24,9 @@ jobs:
         with:
           github-token: ${{ github.token }}
 
-      - name: Enable auto-merge (npm security patch/minor)
+      # Any ecosystem: only the security-patch-minor group, only patch/minor.
+      - name: Enable auto-merge (security patch/minor)
         if: >-
-          steps.metadata.outputs.package-ecosystem == 'npm_and_yarn' &&
           steps.metadata.outputs.dependency-group == 'security-patch-minor' &&
           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
            steps.metadata.outputs.update-type == 'version-update:semver-minor')

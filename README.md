@@ -1,6 +1,6 @@
 # repo-harden
 
-An [Agent Skill](https://agentskills.io) that audits a GitHub repository against a security hardening checklist and **applies only what is missing**. Run it again on a compliant repo and nothing changes.
+An [Agent Skill](https://agentskills.io) that audits a repository against a security hardening checklist and **applies only what is missing, within your permissions**. Run it again on a compliant repo and nothing changes.
 
 ```bash
 npx skills add IgorGuariroba/repo-harden
@@ -8,48 +8,54 @@ npx skills add IgorGuariroba/repo-harden
 
 Then ask your agent: *"harden this repo"*, or *"repo-harden check"* to audit only.
 
-## What it checks and applies
+## Agnostic by design
 
-| Area | Items |
+The checklist is a set of **goals with acceptance criteria** ([`checklist.md`](skills/repo-harden/references/checklist.md)), not a fixed recipe. The agent picks the mechanism that fits the repo:
+
+| Axis | Coverage |
 |---|---|
-| Dependencies | `npm audit` at 0, `dependabot.yml` (npm + github-actions, `security-patch-minor` group) |
-| CI | workflow on `pull_request`/`push`, fixed job name, actions pinned by full commit SHA |
-| Auto-merge | `pull_request_target` workflow that **never checks out PR code**, merges only Dependabot npm security patch/minor after green CI |
-| Publishing | npm Trusted Publishing (OIDC) with provenance, no `NPM_TOKEN`, tag validated against `package.json` and the default branch |
-| Environment | publish environment deployable only from `v*` tags |
-| Branch ruleset | no deletion, no force push, PR required (0 approvals), squash only, required checks with strict up-to-date policy, admin bypass via PR |
-| Tag ruleset | `refs/tags/v*` cannot be deleted, moved or force-pushed |
-| Repo settings | squash-only merges with PR title/body, delete branch on merge, auto-merge, "Update branch" button |
-| Secret scanning | secret scanning, non-provider patterns, push protection, Dependabot security updates |
-| Local hooks | `pre-commit`/`pre-push` blocking direct commits and pushes to `main`/`master` (integrates with husky/lefthook if present) |
+| **Agent** | any agent that supports Agent Skills and can run shell commands (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Pi…) |
+| **Stack** | built-in profiles for Node, Python, Go and Rust; other ecosystems are detected and the agent researches their tooling |
+| **Platform** | full automation on **GitHub**; on GitLab, Bitbucket, Azure DevOps or self-hosted Git, it uses the platform CLI when you have admin rights |
+| **Permissions** | as admin, everything is applied; with write access, changes go through a PR; with clone-only access, it applies local hooks and writes a **maintainer recommendation** block for the rest |
 
-## How it works
+## Checklist
 
-1. **Audit:** `scripts/audit.sh` is a deterministic, read-only check that prints `ok` / `missing` / `drift` per item.
-2. **Plan:** the agent lists what will change and asks once for confirmation (and for ambiguous cases, like existing classic branch protection).
-3. **Files go through a PR** on `chore/repo-harden`, using templates whose actions get pinned to the latest release SHA.
-4. **Settings** are applied via `gh api`, patching only the diff and preserving existing rulesets and environments.
-5. **Merge and re-audit**, then a before/after report plus the manual steps that need your 2FA (`npm trust`).
+| Item | Goal |
+|---|---|
+| `hooks.protect-branch` | `pre-commit`/`pre-push` block direct commits and pushes to `main`/`master` |
+| `hooks.secrets` | optional pre-commit secret scan (gitleaks, trufflehog…) |
+| `deps.vulns` | 0 known vulnerabilities (`npm audit`, `pip-audit`, `govulncheck`, `cargo audit`…) |
+| `deps.bot` | Dependabot/Renovate for every ecosystem + CI actions, security fixes grouped |
+| `ci.pipeline` | CI on every PR with a fixed job name and read-only token |
+| `ci.pinned` | third-party actions pinned by full commit SHA |
+| `automerge` | security patch/minor bot PRs auto-merge **only after CI is green**, never running PR code |
+| `publish.oidc` | Trusted Publishing (npm, PyPI, crates.io) with provenance, no long-lived tokens |
+| `publish.env` | publish credentials reachable only from `v*` tags |
+| `merge.squash` | squash-only merges with PR title/body |
+| `protect.branch` | no deletion or force push, PR required, required checks with strict policy |
+| `protect.tags` | release tags cannot be deleted, moved or force-pushed |
+| `secrets.scanning` | secret scanning, generic patterns and push protection (CI fallback where unavailable) |
 
-Requirements: `git`, `gh` (authenticated, repo admin), `jq`, `bash`.
+Plan limits are detected and reported. For example, a private repo on GitHub Free has no rulesets, so it gets hooks plus a recommendation.
 
-You can run the audit without an agent:
+## Run the audit without an agent
 
 ```bash
 bash ~/.agents/skills/repo-harden/scripts/audit.sh | column -t -s $'\t'
 ```
 
+Requirements: `git`, `bash`, `jq`; `gh` for GitHub automation.
+
 ---
 
 ## 🇧🇷 Português
 
-Skill para agentes de código que audita um repositório do GitHub contra um checklist de segurança e **aplica só o que falta**: Dependabot com auto-merge protegido por CI, actions fixadas por SHA, publicação no npm via OIDC, rulesets de branch e de tag, merge só por squash, secret scanning e hooks locais que bloqueiam commit e push direto na `main`.
+Skill para agentes de código que audita um repositório contra um checklist de segurança e **aplica só o que falta, dentro das suas permissões**. O checklist é definido por objetivos e critérios de aceite, então funciona com qualquer agent, qualquer stack (Node, Python, Go e Rust prontos; outras são pesquisadas pelo agent) e qualquer plataforma. No GitHub, a automação é completa. Sem acesso de admin (por exemplo, num GitLab da empresa), ela aplica os hooks locais e gera recomendações prontas para os mantenedores.
 
 ```bash
 npx skills add IgorGuariroba/repo-harden
 ```
-
-Depois peça ao agente: *"faça o hardening deste repo"*, ou *"repo-harden check"* para só auditar. Mudanças de arquivo vão por PR; passos que exigem 2FA (`npm trust`) ficam para você.
 
 ## License
 

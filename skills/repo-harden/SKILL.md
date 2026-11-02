@@ -1,106 +1,101 @@
 ---
 name: repo-harden
-description: Audit a GitHub repository against a security hardening checklist and apply whatever is missing — Dependabot with CI-gated auto-merge of security fixes, pinned-SHA CI, npm Trusted Publishing (OIDC + provenance), branch and tag rulesets, squash-only merges, secret scanning with push protection, and local git hooks blocking direct commits to main. Use when the user asks to harden, secure, protect or audit a GitHub repo, set up branch protection/rulesets, Dependabot auto-merge, or npm OIDC publishing. Pass "check" to audit only.
+description: Audit a repository against a security hardening checklist and apply only what is missing, within the user's permissions — branch and tag protection, squash-only merges, required CI with actions pinned by SHA, Dependabot/Renovate with CI-gated auto-merge of security fixes, Trusted Publishing (OIDC) to npm/PyPI/crates.io, secret scanning, and local git hooks that block direct commits to main. Stack-agnostic (Node, Python, Go, Rust built in; others researched). Full automation on GitHub; on GitLab and other hosts, or without admin rights, applies local protections and writes maintainer recommendations. Use when the user asks to harden, secure, protect or audit a repo, set up branch protection, rulesets, Dependabot auto-merge or OIDC publishing. Pass "check" to audit only.
 license: MIT
-compatibility: Requires git, gh (authenticated, repo admin), jq and bash. Node/npm items apply only when package.json exists.
+compatibility: Requires git, bash and jq. GitHub automation needs gh authenticated with repo admin; other hosts use their CLI/API when available.
 metadata:
   author: IgorGuariroba
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
 # repo-harden
 
-Every checklist item goes **audit → apply only the diff → re-audit**. The run is idempotent: on a compliant repository it ends without changing anything.
+The checklist in `references/checklist.md` defines each item as a **goal plus acceptance criterion**. Mechanisms vary by platform and stack; the criterion does not. Every run goes **audit → plan → apply only the diff, within scope → re-audit**. It is idempotent: on a compliant repository it changes nothing.
 
-Paths are relative to this skill's directory: `scripts/`, `assets/`, `references/github-api.md`. Talk to the user in their language.
+Paths are relative to this skill's directory. Talk to the user in their language.
 
-## 1. Preconditions
-Check each one before continuing. If any fails, stop and explain:
-- git repository whose `origin` remote is on GitHub, and `gh auth status` succeeds;
-- `gh api repos/<R> --jq .permissions.admin` is `true`;
-- clean working tree (`git status --porcelain` is empty).
-
-## 2. Audit
-Run `scripts/audit.sh` from the repository root and show the result as a table (item, status, detail). Statuses: `ok`, `missing`, `drift`, `n/a`, `manual`, `info`.
-
-If the argument is `check`, **stop here**.
-
-## 3. Plan and confirmation
-List every item that will change, grouped into **files (via PR)** and **GitHub settings**, and ask for a single go-ahead before applying anything. Raise these decisions in the same question:
-- classic branch protection is active (migrate it to the ruleset and remove it?);
-- `creation` rule on the tag ruleset (see `references/github-api.md`);
-- existing publish workflow without `environment:`, more than one publish workflow, or a release tag pattern other than `v*`;
-- a hook manager is already present (husky, lefthook, pre-commit, simple-git-hooks): confirm integrating into it;
-- non-Node project: confirm the stack so the CI can be adapted.
-
-## 4. File changes (on a branch, via PR)
-Run `git switch -c chore/repo-harden` from an up-to-date default branch. For each `missing`/`drift` item:
-
-| Item | Action |
+| Reference | Read when |
 |---|---|
-| `npm.audit` | `npm audit fix` (never `--force`). Target is 0; report whatever remains. |
-| `package.repository` | set `repository.url` to `git+https://github.com/<R>.git` (provenance fails otherwise) |
-| `dependabot.yml` | `assets/dependabot.yml`; without `package.json`, keep only the `github-actions` block |
-| `ci.workflow` | `assets/workflows/ci.yml` |
-| `automerge.workflow` | `assets/workflows/dependabot-auto-merge.yml` |
-| `publish.workflow` | `assets/workflows/publish.yml` (publishable packages only) |
-| `actions.pinned` | replace each `uses:` with the output of `scripts/pin-action.sh <owner/action>` |
-| `hooks.local` | see **Hooks** below |
+| `references/checklist.md` | always, before planning |
+| `references/ecosystems.md` | the audit reports any ecosystem |
+| `references/github.md` | platform is `github` |
+| `references/other-platforms.md` | platform is anything else |
 
-**Template placeholders:**
-- `{{REPO}}`, `{{DEFAULT_BRANCH}}`: from the audited repository.
-- `{{CHECKOUT}}`, `{{SETUP_NODE}}`, `{{FETCH_METADATA}}`: output of `scripts/pin-action.sh actions/checkout actions/setup-node dependabot/fetch-metadata`.
-- `{{NPM_VERSION}}`: `npm view npm version`, which must be ≥ 11.5.1.
-- `{{VALIDATION_STEPS}}`: one `- run: npm run <s>` for each existing script among typecheck, lint, test and build (`npm test` for test).
-- `npm pack --dry-run` stays only for publishable packages.
+## 1. Audit
+1. Confirm a git repository with a clean working tree (`git status --porcelain` empty). If it is dirty, ask before continuing.
+2. Run `scripts/audit.sh` from the repository root and show its output as a table (item, status, detail).
+   - Statuses: `ok`, `missing`, `drift`, `n/a`, `manual`, `verify`, `info`.
+   - The `platform` row gives the **scope**: `local`, `repo-write` or `admin`.
+   - The `ecosystems` row lists the detected stacks.
+3. Resolve every `verify` row yourself: the ecosystem's audit tool, the CI config of another platform, the Renovate config, and the scope on a non-GitHub host (`references/other-platforms.md` §1). Each row ends as a concrete status.
 
-Done when `grep -r '{{' .github` is empty.
+If the argument is `check`, report and **stop here**.
 
-A file that already exists with status `drift` gets a **targeted fix**; never overwrite it with the template. The CI job keeps a fixed `name:` because the ruleset will require that literal name.
+## 2. Plan and confirmation
+Place every non-`ok` item in one of three buckets, using the scope column in the checklist:
+- **apply locally**: `hooks.*`, `deps.vulns`;
+- **apply via PR**: files, when scope ≥ `repo-write`;
+- **apply via API**: settings, when scope is `admin`;
+- **recommend to maintainers**: everything beyond scope or unavailable on the plan.
 
-### Hooks
-- With a hook manager: add the check from `assets/githooks/` to that manager's hook.
-- Without one: copy `assets/githooks/*` to `.githooks/`, run `chmod +x` and `git config core.hooksPath .githooks`, and add `git config core.hooksPath .githooks` to the `prepare` script (if `package.json` exists) or to the README.
-- Existing hook: put the check at its top and keep the rest intact.
+Show the buckets and ask for a **single go-ahead**. Include these decisions in the same question:
+- publishing candidates marked `?`: is the project meant to be published, and to which registry?
+- `hooks.secrets`: which scanner, if any is installed;
+- legacy branch protection: migrate it into the ruleset and remove it?
+- the `creation` rule on the tag ruleset;
+- an existing hook manager (husky, lefthook, pre-commit, simple-git-hooks): integrate into it;
+- on a repo the user does not own: commit the hooks, or keep them local-only?
 
-Validate with `scripts/test-hooks.sh <hooks-dir>`. All 6 cases must pass.
+## 3. Apply locally
+- **Hooks:** with a hook manager, add the check from `assets/githooks/` to that manager's hook. Without one, copy `assets/githooks/*` to `.githooks/`, run `chmod +x` and `git config core.hooksPath .githooks`, and document the activation command in the `prepare` script or the README. An existing hook keeps its content, with the check added at its top. Validate with `scripts/test-hooks.sh <hooks-dir>`; all 6 cases must pass.
+- **`hooks.secrets`:** a `pre-commit` step running the chosen scanner on staged changes, and only if the scanner is installed. Do not install system tools without asking.
+- **`deps.vulns`:** use the ecosystem's audit/fix tool (`references/ecosystems.md`), staying within semver-compatible fixes. Report leftovers with their advisory IDs.
 
-Run the validation scripts locally (`npm ci` plus the validation scripts). Then commit (`chore: harden repository`), push the branch and run `gh pr create --fill`. The hooks allow pushes of work branches.
+## 4. Apply via PR (scope ≥ repo-write)
+Create the branch `chore/repo-harden` from the up-to-date default branch.
 
-Skip this step if no file item was pending.
+**Writing files:**
+- For each detected ecosystem, apply its profile from `references/ecosystems.md`. An unlisted ecosystem gets a profile you research and fill in with the same columns.
+- Templates in `assets/` are Node/GitHub examples. Keep their invariants and swap only the stack-specific steps:
+  - **CI:** read-only token, `persist-credentials: false`, a fixed job `name:` (the ruleset requires that literal name), the project's real validation commands.
+  - **Publish:** release-triggered, `environment:`, `id-token: write`, tag ∈ default-branch history, tag == `v` + version, no registry token secrets.
+  - **Auto-merge:** `pull_request_target`, no checkout, `security-patch-minor` + patch/minor only, `--match-head-commit`. Install it only when `protect.branch` will require the CI checks.
+- Pin actions with `scripts/pin-action.sh <owner/action>...`.
+- Fill every `{{PLACEHOLDER}}`. Done when `grep -r '{{' .github` is empty.
+- A file in `drift` gets a **targeted fix** and keeps the rest of its content.
 
-## 5. GitHub settings
-Apply the recipes in `references/github-api.md` in this order:
-1. `repo.*`
-2. `sec.*`
-3. `env.*`
-4. `ruleset.tags`
-5. `ruleset.branch`
+**Validating, then opening the PR:**
+1. Run the validation commands locally.
+2. Commit (`chore: harden repository`) and push the branch.
+3. Open the PR with the platform CLI.
 
-For `ruleset.branch`, add `required_status_checks` only after CI has run on the PR (or already exists on the default branch). Take `context` and `integration_id` from the real check-runs. Wait for the PR checks with `gh pr checks <n> --watch --fail-fast`, or with your harness's background watch if it has one.
+Skip this step when no file item is pending.
 
-An API error (plan or license) does not abort the run: record the exact error and move to the next item.
+## 5. Apply via API (scope = admin)
+- **GitHub:** `references/github.md`, in this order: `merge.squash`, `secrets.scanning`, `publish.env`, `protect.tags`, `protect.branch`.
+- **Other platforms:** `references/other-platforms.md` §2. Show each call before running it.
 
-## 6. Merge and close
-- With the PR checks green: `gh pr merge <n> --squash --delete-branch`.
-- Wait for the default-branch CI (`gh run watch <run-id> --exit-status`).
-- `git switch <default> && git pull`.
-- Re-run `scripts/audit.sh`.
+Add required checks only after CI has run on the PR, and take the exact check names from the real check-runs. Wait with `gh pr checks <n> --watch --fail-fast`, the platform equivalent, or your harness's background watch.
 
-**Done** when every item is `ok`, `n/a` or `manual`, or the remaining ones have a recorded reason (for example, a feature unavailable on the plan).
+An API refusal (plan, license, visibility) does not abort the run: record the exact error, mark the item `n/a`, apply the documented fallback, and continue.
+
+## 6. Merge and re-audit
+1. With checks green, squash-merge the PR and wait for CI on the default branch.
+2. Update the local default branch.
+3. Re-run `scripts/audit.sh`.
+
+**Done** when every item is `ok`, `n/a`, `manual`, or a maintainer recommendation with its reason recorded.
 
 ## 7. Report
-1. Table of item × before × after.
-2. Files created or changed, and the PR link.
-3. **Auto-merge:** only Dependabot PRs in the `security-patch-minor` group (npm, semver patch/minor) merge on their own, after green CI. Major bumps, version updates and github-actions updates wait for review.
-4. **Manual steps** (they need the user's 2FA, so never run them yourself):
-   - package not published yet: first publish by hand with `npm publish --access public`;
-   - register the trusted publisher: `npm trust github <name> --file publish.yml --repo <R> --env npm --allow-publish --yes --otp=<code>`, then verify with `npm trust list <name>`;
-   - after the first OIDC publish: npmjs.com → package → Settings → Publishing access → "Require 2FA and disallow tokens", and revoke old tokens.
-5. Release flow: `npm version patch && git push --follow-tags && gh release create v<version> --generate-notes`.
-6. Undo hooks: `git config --unset core.hooksPath`. One-off bypass: `ALLOW_MAIN=1` or `--no-verify`.
+1. Table of item × before × after × how (local / PR / API / recommendation / n/a reason).
+2. Files changed and the PR link.
+3. What merges on its own: only bot PRs in `security-patch-minor` with semver patch/minor, after green CI. Everything else waits for review.
+4. **Manual steps that need the user's 2FA** (never run them yourself): register the trusted publisher on each registry (`references/ecosystems.md`), make the first manual publish where the registry requires it, and afterwards disallow token publishing and revoke old tokens.
+5. **Maintainer recommendations**, as one block ready to paste into an issue or MR.
+6. Release flow (bump version, tag `v<version>`, create release) and how to undo the hooks (`git config --unset core.hooksPath`; one-off bypass with `ALLOW_MAIN=1` or `--no-verify`).
 
 ## Guardrails
-- Leave the publish workflow, tags, PRs and pushes untouched except for this run's own `chore/repo-harden` PR. Hook tests run only in `/tmp`, via `scripts/test-hooks.sh`.
-- The auto-merge workflow never checks out or executes PR code.
+- Touch only this run's own `chore/repo-harden` branch and PR. Leave publishing, tags and other PRs alone. Hook tests run only in `/tmp`, via `scripts/test-hooks.sh`.
+- Server-side changes stay within the scope the audit measured. Anything beyond it becomes a recommendation.
+- Workflows triggered by bots or `pull_request_target` never check out or execute PR code.
 - Changes reach the default branch **only through a PR**.

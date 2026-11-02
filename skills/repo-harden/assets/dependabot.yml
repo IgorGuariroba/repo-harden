@@ -1,6 +1,8 @@
 version: 2
 updates:
-  - package-ecosystem: npm
+  # One block per detected ecosystem and manifest directory (references/ecosystems.md).
+  # {{ECOSYSTEM}}: npm | pip | uv | gomod | cargo | ...
+  - package-ecosystem: {{ECOSYSTEM}}
     directory: /
     schedule:
       interval: weekly
