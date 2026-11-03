@@ -1,11 +1,11 @@
 ---
 name: repo-harden
-description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up branch/tag protection, Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
+description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up branch/tag protection, automated PR review (Copilot, CodeRabbit), Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
 license: MIT
 compatibility: Requires git, bash and jq. GitHub automation needs gh authenticated with repo admin; other hosts use their CLI/API when available.
 metadata:
   author: IgorGuariroba
-  version: "3.1.1"
+  version: "3.2.0"
 ---
 
 # repo-harden
@@ -52,6 +52,7 @@ A reply that does not choose ("ok", "go", "sim") applies **every default**. "ok,
 | legacy branch protection | migrate it into the ruleset, then remove it | migrate and keep it; leave it alone |
 | `creation` rule on the tag ruleset | on; the release tool the audit detected (release-please, semantic-release, changesets) goes to the bypass list | off |
 | hooks on a repo the user does not own | commit them, and give the reason in the PR body | local-only |
+| `review.bot` reviewer | Copilot code review (ruleset rule); if refused, recommend CodeRabbit | CodeRabbit (user installs the App); none |
 | `automerge` scope | `security-patch-minor` with semver patch/minor | + any patch; + any patch/minor (major never) |
 
 ## 3. Apply locally
@@ -79,7 +80,7 @@ Done when every file item marked `missing` or `drift` has a change on the branch
 Skip this step when no file item is pending.
 
 ## 5. Apply via API (scope = admin)
-- **GitHub:** `references/github.md`, in this order: `merge.squash`, `secrets.scanning`, `publish.env`, `protect.tags`, `protect.branch`, then `classic-protection` (only once the ruleset exists).
+- **GitHub:** `references/github.md`, in this order: `merge.squash`, `secrets.scanning`, `publish.env`, `protect.tags`, `protect.branch`, `review.bot`, then `classic-protection` (only once the ruleset exists).
 - **Other platforms:** `references/other-platforms.md` §2. Show each call before running it.
 
 Add required checks only after CI has run on the PR, and take the exact check names from the real check-runs. Wait with `gh pr checks <n> --watch --fail-fast`, the platform equivalent, or your harness's background watch.

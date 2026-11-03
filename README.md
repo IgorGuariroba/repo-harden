@@ -35,6 +35,7 @@ The checklist is a set of **goals with acceptance criteria** ([`checklist.md`](s
 | `merge.squash` | squash-only merges with PR title/body |
 | `protect.branch` | no deletion or force push, PR required, required checks with strict policy |
 | `protect.tags` | release tags cannot be deleted, moved or force-pushed |
+| `review.bot` | Copilot code review (ruleset) or CodeRabbit on every PR, advisory only |
 | `secrets.scanning` | secret scanning, generic patterns and push protection (CI fallback where unavailable) |
 
 Plan limits are detected and reported. For example, a private repo on GitHub Free has no rulesets, so it gets hooks plus a recommendation.

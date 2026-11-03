@@ -21,6 +21,7 @@ Scope column: **local** = works with plain clone access; **repo-write** = needs 
 | `protect.branch` | The default branch only changes through validated PRs | no deletion, no force push, PR required (0 approvals for solo devs), squash only, required checks = CI job name(s), strict/up-to-date policy; admin bypass only through PR | admin |
 | `protect.tags` | Published releases cannot be rewritten | release tags cannot be deleted, moved or force-pushed; admin bypass; tag creation restricted to admin and the detected release tool, unless the user declined | admin |
 | `secrets.scanning` | Leaked secrets are detected and blocked server-side | secret scanning + generic (non-provider) patterns + push protection + automatic security updates enabled; where the platform lacks it, a required CI job running a secret scanner is the fallback | admin |
+| `review.bot` | Every PR gets an automated code review before merge | the default branch requests an automated reviewer on every PR and push: Copilot code review through a `copilot_code_review` ruleset rule with `review_on_push`, or a review App (CodeRabbit…) installed and configured in the repo; advisory only, never counted as an approval; reviewer chosen in the go-ahead | admin |
 | `classic-protection` | One source of truth for branch rules | no legacy branch protection overlapping the ruleset (migrated and removed by default, unless the user declined) | admin |
 
 ## Out-of-reach items

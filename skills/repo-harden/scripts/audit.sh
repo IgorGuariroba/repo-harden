@@ -236,7 +236,7 @@ done
 
 # ---------- GitHub server-side settings ----------
 if [ "$platform" != github ] || [ -z "$meta" ]; then
-  for i in merge.squash protect.branch protect.tags secrets.scanning publish.env; do
+  for i in merge.squash protect.branch protect.tags secrets.scanning publish.env review.bot; do
     row "$i" verify "$platform: needs admin + platform API; if out of scope, write a maintainer recommendation"
   done
   exit 0
@@ -256,7 +256,7 @@ chk merge.squash/delete_branch delete_branch_on_merge true
 chk merge.squash/update_branch allow_update_branch true
 chk merge.squash/auto_merge allow_auto_merge true
 
-branch_rs=""; tag_rs=""; rulesets_ok=1
+branch_rs=""; tag_rs=""; review_rs=""; rulesets_ok=1
 rs_list=$(gh api "repos/$path/rulesets?includes_parents=false" 2>/dev/null)
 if ! jq -e 'type=="array"' <<<"$rs_list" >/dev/null 2>&1; then
   rulesets_ok=0
@@ -268,7 +268,11 @@ for id in $(jq -r 'if type=="array" then .[].id else empty end' <<<"$rs_list" 2>
   rs=$(api "repos/$path/rulesets/$id")
   tgt=$(jq -r .target <<<"$rs")
   inc=$(jq -r '.conditions.ref_name.include | join(",")' <<<"$rs")
-  if [ "$tgt" = branch ] && grep -qE "~DEFAULT_BRANCH|refs/heads/$default_branch" <<<"$inc"; then branch_rs=$rs; fi
+  if [ "$tgt" = branch ] && grep -qE "~DEFAULT_BRANCH|refs/heads/$default_branch|~ALL" <<<"$inc"; then
+    jq -e '.rules | any(.type=="copilot_code_review")' <<<"$rs" >/dev/null 2>&1 && review_rs=$rs
+    # protection ruleset = targets the default branch and has rules beyond the review one
+    if ! grep -q '~ALL' <<<"$inc" && jq -e '.rules | any(.type!="copilot_code_review")' <<<"$rs" >/dev/null 2>&1; then branch_rs=$rs; fi
+  fi
   if [ "$tgt" = tag ] && grep -qE 'refs/tags/v\*|~ALL' <<<"$inc"; then tag_rs=$rs; fi
 done
 
@@ -341,6 +345,21 @@ elif [ -n "$tag_rs" ]; then
   [ -z "$issues" ] && row protect.tags ok "ruleset=$id" || row protect.tags drift "ruleset=$id:$issues"
 else
   row protect.tags missing "no tag ruleset covering refs/tags/v*"
+fi
+
+# review.bot: automated review on every PR (Copilot ruleset rule, or a review App configured in the repo)
+review_cfg=$(ls .coderabbit.yaml .coderabbit.yml 2>/dev/null | head -1)
+if [ -n "$review_rs" ]; then
+  id=$(jq -r .id <<<"$review_rs"); issues=""
+  [ "$(jq -r .enforcement <<<"$review_rs")" = active ] || issues="$issues enforcement!=active"
+  jq -e '.rules[] | select(.type=="copilot_code_review") | .parameters.review_on_push == true' <<<"$review_rs" >/dev/null || issues="$issues review_on_push!=true"
+  [ -z "$issues" ] && row review.bot ok "copilot_code_review ruleset=$id" || row review.bot drift "copilot_code_review ruleset=$id:$issues"
+elif [ -n "$review_cfg" ]; then
+  row review.bot verify "$review_cfg present: confirm the CodeRabbit App is installed on $path"
+elif [ $rulesets_ok = 0 ]; then
+  row review.bot missing "rulesets unavailable: $rs_err (fallback: a review App such as CodeRabbit)"
+else
+  row review.bot missing "no copilot_code_review rule on ~DEFAULT_BRANCH and no review App config"
 fi
 
 cp_json=$(gh api "repos/$path/branches/$default_branch/protection" 2>/dev/null)

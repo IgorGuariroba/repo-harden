@@ -34,6 +34,9 @@ jobs:
       - name: Audit deps.vulns rows
         run: skills/repo-harden/scripts/test-audit-deps.sh
 
+      - name: Audit review.bot rows
+        run: skills/repo-harden/scripts/test-audit-review.sh
+
       - name: Audit IDs defined in checklist
         run: skills/repo-harden/scripts/test-checklist-ids.sh
 
