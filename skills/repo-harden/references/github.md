@@ -65,6 +65,20 @@ gh api repos/$R/rulesets/$ID | jq "$strip"' |
 ```
 No CI: omit `required_status_checks` and tell the user. The check name must be **identical** to the job's `name:`.
 
+## review.bot — ruleset `default-branch: copilot review`
+A separate ruleset, so that a refusal (no Copilot plan) never touches `protect.branch`. Copilot code review needs a Copilot plan (Pro, Pro+, Business or Enterprise) for the ruleset creator, and each automatic review needs the PR author to have Copilot code review access and credits left; otherwise the review is skipped, not failed. Re-read the ruleset after the POST: a missing rule is a silent refusal.
+```json
+{
+  "name": "default-branch: copilot review",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+  "rules": [{"type": "copilot_code_review", "parameters": {"review_on_push": true, "review_draft_pull_requests": false}}],
+  "bypass_actors": []
+}
+```
+Alternative chosen in the go-ahead (or the fallback when Copilot is refused): CodeRabbit. The user installs the GitHub App (https://github.com/apps/coderabbitai) on the repo, which the agent cannot do; the PR adds a `.coderabbit.yaml` with `reviews.auto_review.enabled: true`. The audit then reports `verify` until you confirm the App is installed (`gh api repos/$R/installation` returns 404 for user tokens, so check that a CodeRabbit review shows up on this run's PR).
+
 ## protect.tags — ruleset `tags: release`
 ```json
 {

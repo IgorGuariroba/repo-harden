@@ -1,0 +1,30 @@
+#!/bin/sh
+# Blocks pushes (including deletes and "feat:main") to protected branches.
+# Protected: git config hooks.protectedBranches (space or comma separated); default "main master".
+# Bypass: ALLOW_MAIN=1 git push ...  (or git push --no-verify)
+# stdin: <local ref> <local sha> <remote ref> <remote sha>
+
+[ "${ALLOW_MAIN:-}" = "1" ] && { cat >/dev/null; exit 0; }
+
+protected=$(git config --get hooks.protectedBranches | tr ',' ' ')
+[ -n "$protected" ] || protected="main master"
+
+blocked=""
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  for p in $protected; do
+    if [ "$remote_ref" = "refs/heads/$p" ]; then
+      blocked="$blocked $p"
+    fi
+  done
+done
+
+if [ -n "$blocked" ]; then
+  {
+    echo "✋ Direct push to protected branch blocked:$blocked (remote: ${1:-?})"
+    echo "   Create a work branch:  git switch -c feat/<name>"
+    echo "   and push it:           git push -u origin feat/<name>"
+    echo "   Deliberate bypass:     ALLOW_MAIN=1 git push ..."
+  } >&2
+  exit 1
+fi
+exit 0

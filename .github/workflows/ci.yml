@@ -23,10 +23,12 @@ jobs:
           persist-credentials: false
 
       - name: ShellCheck
-        run: shellcheck -S warning skills/repo-harden/scripts/*.sh skills/repo-harden/assets/githooks/*
+        run: shellcheck -S warning skills/repo-harden/scripts/*.sh skills/repo-harden/assets/githooks/* .githooks/*
 
       - name: Hook behavior
-        run: skills/repo-harden/scripts/test-hooks.sh skills/repo-harden/assets/githooks
+        run: |
+          skills/repo-harden/scripts/test-hooks.sh skills/repo-harden/assets/githooks
+          skills/repo-harden/scripts/test-hooks.sh .githooks
 
       - name: Audit secrets.scanning rows
         run: skills/repo-harden/scripts/test-audit-secrets.sh
@@ -34,8 +36,25 @@ jobs:
       - name: Audit deps.vulns rows
         run: skills/repo-harden/scripts/test-audit-deps.sh
 
+      - name: Audit review.bot rows
+        run: skills/repo-harden/scripts/test-audit-review.sh
+
       - name: Audit IDs defined in checklist
         run: skills/repo-harden/scripts/test-checklist-ids.sh
 
       - name: No unresolved template placeholders outside assets
         run: "! grep -rn '{{' skills/repo-harden --include=*.sh"
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false # read-only token cannot comment
