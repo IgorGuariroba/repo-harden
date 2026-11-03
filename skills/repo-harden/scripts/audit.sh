@@ -258,7 +258,7 @@ done
 
 # ---------- GitHub server-side settings ----------
 if [ "$platform" != github ] || [ -z "$meta" ]; then
-  for i in merge.squash protect.branch protect.tags secrets.scanning publish.env review.bot; do
+  for i in merge.squash protect.branch protect.tags protect.signed secrets.scanning publish.env review.bot; do
     row "$i" verify "$platform: needs admin + platform API; if out of scope, write a maintainer recommendation"
   done
   exit 0
@@ -278,13 +278,14 @@ chk merge.squash/delete_branch delete_branch_on_merge true
 chk merge.squash/update_branch allow_update_branch true
 chk merge.squash/auto_merge allow_auto_merge true
 
-branch_rs=""; tag_rs=""; review_rs=""; rulesets_ok=1
+branch_rs=""; tag_rs=""; review_rs=""; signed_rs=""; rulesets_ok=1
 rs_list=$(gh api "repos/$path/rulesets?includes_parents=false" 2>/dev/null)
 if ! jq -e 'type=="array"' <<<"$rs_list" >/dev/null 2>&1; then
   rulesets_ok=0
   rs_err=$(jq -r '.message // "unknown error"' <<<"$rs_list" 2>/dev/null)
   row protect.branch n/a "rulesets unavailable: $rs_err (fallback: classic branch protection if the plan allows, else hooks.protect-branch only)"
   row protect.tags n/a "rulesets unavailable: $rs_err"
+  row protect.signed n/a "rulesets unavailable: $rs_err"
 fi
 for id in $(jq -r 'if type=="array" then .[].id else empty end' <<<"$rs_list" 2>/dev/null); do
   rs=$(api "repos/$path/rulesets/$id")
@@ -292,8 +293,9 @@ for id in $(jq -r 'if type=="array" then .[].id else empty end' <<<"$rs_list" 2>
   inc=$(jq -r '.conditions.ref_name.include | join(",")' <<<"$rs")
   if [ "$tgt" = branch ] && grep -qE "~DEFAULT_BRANCH|refs/heads/$default_branch|~ALL" <<<"$inc"; then
     jq -e '.rules | any(.type=="copilot_code_review")' <<<"$rs" >/dev/null 2>&1 && review_rs=$rs
-    # protection ruleset = targets the default branch and has rules beyond the review one
-    if ! grep -q '~ALL' <<<"$inc" && jq -e '.rules | any(.type!="copilot_code_review")' <<<"$rs" >/dev/null 2>&1; then branch_rs=$rs; fi
+    jq -e '.enforcement=="active" and (.rules | any(.type=="required_signatures"))' <<<"$rs" >/dev/null 2>&1 && signed_rs=$rs
+    # protection ruleset = targets the default branch and has rules beyond the review and signature ones
+    if ! grep -q '~ALL' <<<"$inc" && jq -e '.rules | any(.type!="copilot_code_review" and .type!="required_signatures")' <<<"$rs" >/dev/null 2>&1; then branch_rs=$rs; fi
   fi
   if [ "$tgt" = tag ] && grep -qE 'refs/tags/v\*|~ALL' <<<"$inc"; then tag_rs=$rs; fi
 done
@@ -367,6 +369,15 @@ elif [ -n "$tag_rs" ]; then
   [ -z "$issues" ] && row protect.tags ok "ruleset=$id" || row protect.tags drift "ruleset=$id:$issues"
 else
   row protect.tags missing "no tag ruleset covering refs/tags/v*"
+fi
+
+# protect.signed: verified signatures required on the default branch (on by default; applied after this run's PR merges)
+if [ $rulesets_ok = 0 ]; then :
+elif [ -n "$signed_rs" ]; then
+  row protect.signed ok "required_signatures ruleset=$(jq -r .id <<<"$signed_rs")"
+else
+  sig="commit.gpgsign=$(git config --get commit.gpgsign || echo unset) signingkey=$(git config --get user.signingkey >/dev/null && echo set || echo unset)"
+  row protect.signed missing "no active required_signatures rule on ~DEFAULT_BRANCH (local $sig)"
 fi
 
 # review.bot: automated review on every PR (Copilot ruleset rule, or a review App configured in the repo)

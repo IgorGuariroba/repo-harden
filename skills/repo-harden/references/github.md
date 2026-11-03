@@ -92,6 +92,37 @@ Alternative chosen in the go-ahead (or the fallback when Copilot is refused): Co
 ```
 Add the `creation` rule (`{"type": "creation"}`, so only Admin creates release tags) unless the user declined it in the go-ahead. If a workflow or App creates the tags (release-please, semantic-release, changesets), add it to `bypass_actors` (an App as `Integration` with its app id; `GITHUB_TOKEN` workflows cannot bypass, so they need an App or a deploy key) before enabling the rule. Otherwise the next release fails.
 
+## protect.signed — ruleset `default-branch: signed commits`
+On by default, unless the user declined it. A separate ruleset, so turning it off never touches `protect.branch`. GitHub checks **every commit a PR brings in**: unsigned commits on the head branch block the merge, squash included, even though the squash commit itself is signed by GitHub. Commits created by GitHub (web UI, API, Dependabot, `GITHUB_TOKEN` API calls) are signed; commits a bot makes with `git commit` + `git push` (e.g. semantic-release with `@semantic-release/git`) are not.
+
+Preconditions, in order:
+1. The user signs their own commits. Check `git config --get commit.gpgsign` (`true`) and `git config --get user.signingkey`, then that the latest own commit shows as verified:
+   ```bash
+   gh api repos/$R/commits/<sha> --jq '.commit.verification | {verified, reason}'
+   ```
+   If not, do not create the ruleset: mark the item pending, and give the user the setup to run (never done by you; adding the key needs the `admin:ssh_signing_key` scope):
+   ```bash
+   git config --global gpg.format ssh
+   git config --global user.signingkey ~/.ssh/id_ed25519.pub
+   git config --global commit.gpgsign true
+   git config --global tag.gpgsign true
+   gh ssh-key add ~/.ssh/id_ed25519.pub --type signing --title "$(hostname) signing"
+   ```
+2. This run's PR is already merged (§6), so its own commits cannot block it.
+3. Every release tool or App in the `protect.branch` bypass list that pushes commits signs them, or is copied to this ruleset's `bypass_actors`.
+
+```json
+{
+  "name": "default-branch: signed commits",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+  "rules": [{"type": "required_signatures"}],
+  "bypass_actors": []
+}
+```
+Re-read the ruleset after the POST: a missing rule is a silent refusal. In the report, tell the user that other contributors must sign before opening PRs, with the setup above.
+
 ## publish.env — publish environment restricted to release tags
 ```bash
 # 1) PUT keeping existing reviewers and wait_timer

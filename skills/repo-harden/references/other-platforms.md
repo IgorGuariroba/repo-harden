@@ -16,6 +16,7 @@ For each server-side item, look up the platform's **current** docs for the mecha
 |---|---|---|---|
 | `protect.branch` | protected branches + "Pipelines must succeed" + squash setting | branch restrictions + merge checks | branch policies (build validation, merge types) |
 | `protect.tags` | protected tags | — (recommend instead) | — |
+| `protect.signed` | push rule "Reject unsigned commits" (Premium) | — (recommend instead) | — (recommend instead) |
 | `merge.squash` | project merge method + squash option "Require" | default merge strategy | branch policy "limit merge types" |
 | `deps.bot` | Renovate (or GitLab dependency scanning on paid tiers) | Renovate | Renovate or Dependabot via extension |
 | `secrets.scanning` | Secret Detection CI template; push protection on Ultimate | CI job with gitleaks | GHAS for Azure DevOps or CI job |

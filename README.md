@@ -36,6 +36,7 @@ The checklist is a set of **goals with acceptance criteria** ([`checklist.md`](s
 | `merge.squash` | squash-only merges with PR title/body |
 | `protect.branch` | no deletion or force push, PR required, required checks with strict policy |
 | `protect.tags` | release tags cannot be deleted, moved or force-pushed |
+| `protect.signed` | verified signatures required on the default branch (on by default, after the user's own commits are verified) |
 | `review.bot` | Copilot code review (ruleset) or CodeRabbit on every PR, advisory only |
 | `secrets.scanning` | secret scanning, generic patterns and push protection (CI fallback where unavailable) |
 

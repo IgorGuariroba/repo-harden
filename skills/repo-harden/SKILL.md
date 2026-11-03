@@ -1,11 +1,11 @@
 ---
 name: repo-harden
-description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up git hooks (branch guard, secret scan, lint/test), branch/tag protection, automated PR review (Copilot, CodeRabbit), Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
+description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up git hooks (branch guard, secret scan, lint/test), branch/tag protection, signed commits, automated PR review (Copilot, CodeRabbit), Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
 license: MIT
 compatibility: Requires git, bash and jq. GitHub automation needs gh authenticated with repo admin; other hosts use their CLI/API when available.
 metadata:
   author: IgorGuariroba
-  version: "3.3.0"
+  version: "3.4.0"
 ---
 
 # repo-harden
@@ -53,6 +53,7 @@ A reply that does not choose ("ok", "go", "sim") applies **every default**. "ok,
 | legacy branch protection | migrate it into the ruleset, then remove it | migrate and keep it; leave it alone |
 | `creation` rule on the tag ruleset | on; the release tool the audit detected (release-please, semantic-release, changesets) goes to the bypass list | off |
 | hooks on a repo the user does not own | commit them, and give the reason in the PR body | local-only |
+| `protect.signed` (signed commits on the default branch) | on: applied after this run's PR merges and once the user's own commits are verified (otherwise pending, with the signing setup in the report); warn that every contributor must sign, since unsigned commits on a PR branch block its merge | off |
 | `review.bot` reviewer | Copilot code review (ruleset rule); if refused, recommend CodeRabbit | CodeRabbit (user installs the App); none |
 | `automerge` scope | `security-patch-minor` with semver patch/minor | + any patch; + any patch/minor (major never) |
 
@@ -82,7 +83,7 @@ Done when every file item marked `missing` or `drift` has a change on the branch
 Skip this step when no file item is pending.
 
 ## 5. Apply via API (scope = admin)
-- **GitHub:** `references/github.md`, in this order: `merge.squash`, `secrets.scanning`, `publish.env`, `protect.tags`, `protect.branch`, `review.bot`, then `classic-protection` (only once the ruleset exists).
+- **GitHub:** `references/github.md`, in this order: `merge.squash`, `secrets.scanning`, `publish.env`, `protect.tags`, `protect.branch`, `review.bot`, then `classic-protection` (only once the ruleset exists). `protect.signed` waits until §6 step 2: it would block this run's own PR.
 - **Other platforms:** `references/other-platforms.md` §2. Show each call before running it.
 
 Add required checks only after CI has run on the PR, and take the exact check names from the real check-runs. Wait with `gh pr checks <n> --watch --fail-fast`, the platform equivalent, or your harness's background watch.
@@ -96,7 +97,8 @@ Done when every admin item is applied, or `n/a` with its exact error recorded.
 ## 6. Merge and re-audit
 1. With checks green, squash-merge the PR and wait for CI on the default branch.
 2. Update the local default branch.
-3. Re-run `scripts/audit.sh`.
+3. Unless the user declined `protect.signed`, apply it now (`references/github.md`, preconditions first).
+4. Re-run `scripts/audit.sh`.
 
 **Done** when every item is `ok`, `n/a`, `manual`, or a maintainer recommendation with its reason recorded.
 
@@ -107,7 +109,8 @@ Done when every admin item is applied, or `n/a` with its exact error recorded.
 4. **Manual steps that need the user's 2FA**, listed for the user to run (they are never run by you): register the trusted publisher on each registry (`references/ecosystems.md`), make the first manual publish where the registry requires it, and afterwards disallow token publishing and revoke old tokens.
 5. **Maintainer recommendations**, as one block ready to paste into an issue or MR.
 6. When `publish.oidc` was applied: the release flow (bump version, tag `v<version>`, create release).
-7. How to undo the hooks (`git config --unset core.hooksPath`; one-off bypass with `ALLOW_MAIN=1` or `--no-verify`).
+7. When `protect.signed` was applied: the signing setup every contributor must run before opening a PR.
+8. How to undo the hooks (`git config --unset core.hooksPath`; one-off bypass with `ALLOW_MAIN=1` or `--no-verify`).
 
 ## Guardrails
 - Touch only this run's own `chore/repo-harden` branch and PR. Leave publishing, tags and other PRs alone. Hook tests run only in `/tmp`, via `scripts/test-hooks.sh`.

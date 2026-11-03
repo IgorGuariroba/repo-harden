@@ -37,6 +37,9 @@ jobs:
       - name: Audit review.bot rows
         run: skills/repo-harden/scripts/test-audit-review.sh
 
+      - name: Audit protect.signed rows
+        run: skills/repo-harden/scripts/test-audit-signed.sh
+
       - name: Audit hooks.quality rows
         run: skills/repo-harden/scripts/test-audit-quality.sh
 
