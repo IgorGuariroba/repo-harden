@@ -28,6 +28,9 @@ The checklist is a set of **goals with acceptance criteria** ([`checklist.md`](s
 | `hooks.quality` | pre-commit lint/format on staged files, pre-push typecheck/tests, with the project's own tools |
 | `deps.vulns` | 0 known vulnerabilities (`npm audit`, `pip-audit`, `govulncheck`, `cargo audit`…) |
 | `deps.bot` | Dependabot/Renovate for every ecosystem + CI actions, security fixes grouped |
+| `ignore.git` | `.gitignore` covers secrets, dependencies and the outputs the build really produces |
+| `ignore.docker` | `.dockerignore` keeps `.git`, `.env` and local dependencies out of every build context |
+| `ignore.publish` | published packages ship only what they need (`files` allowlist, `npm pack --dry-run`) |
 | `ci.pipeline` | CI on every PR with a fixed job name and read-only token |
 | `ci.pinned` | third-party actions pinned by full commit SHA |
 | `automerge` | security patch/minor bot PRs auto-merge **only after CI is green**, never running PR code |

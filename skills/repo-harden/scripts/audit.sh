@@ -256,6 +256,84 @@ for p in $publishable; do
   esac
 done
 
+# ---------- ignore files ----------
+# Only the repository's own ignore files count: a global excludesFile or .git/info/exclude protects one machine.
+repo_ignored() { # path -> 0 when a versionable ignore file ignores it
+  local m src pat
+  m=$(git -c core.excludesFile=/dev/null check-ignore -v --no-index -- "$1" 2>/dev/null) || return 1
+  src=${m%%:*}; pat=$(cut -f1 <<<"$m"); pat=${pat#*:}; pat=${pat#*:}
+  case "$src" in /*|.git/*) return 1 ;; esac
+  [[ $pat != '!'* ]]
+}
+secret_rx='(^|/)\.env(\.[^/]+)?$|\.(pem|key|p12|pfx|jks|keystore)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$'
+example_rx='(^|/)\.env\.(example|sample|template|dist|defaults?)$'
+
+# ignore.git: secret probes + the ecosystems' dependency/cache dirs; build outputs are verified by running the build
+if [ ! -f .gitignore ]; then
+  row ignore.git missing "no .gitignore (start from the ecosystem baseline in references/ecosystems.md)"
+else
+  miss=""
+  probes=".env .env.local .env.production config/.env key.pem certs/server.key"
+  for e in $eco; do case $e in
+    node) probes="$probes node_modules/x" ;;
+    python) probes="$probes __pycache__/x.pyc .venv/x" ;;
+    rust) probes="$probes target/x" ;;
+  esac; done
+  for p in $probes; do repo_ignored "$p" || miss="$miss ${p%/x}"; done
+  repo_ignored .env.example && miss="$miss !.env.example(ignored)"
+  [ -z "$miss" ] && row ignore.git ok "secrets and ecosystem dirs ignored" || row ignore.git drift "not ignored:$miss"
+fi
+tracked_secrets=$(git ls-files 2>/dev/null | grep -E "$secret_rx" | grep -vE "$example_rx" | head -10 | paste -sd' ' -)
+[ -n "$tracked_secrets" ] && row ignore.git:tracked verify "tracked: $tracked_secrets (real secret: git rm --cached in the PR + the user rotates it, history keeps it; fixture: keep and record why)"
+[ -n "$eco$other" ] && row ignore.git:build verify "run install+build+test in a /tmp copy: every new untracked file (git status --porcelain --untracked-files=all) must be ignored"
+
+# ignore.docker: every Dockerfile's build context excludes .git, secrets and dependencies
+dockerfiles=$(git ls-files 2>/dev/null | grep -E '(^|/)(Dockerfile|Containerfile)(\.[^/]+)?$|\.(Dockerfile|Containerfile)$' | grep -vE '\.dockerignore$' || true)
+if [ -z "$dockerfiles" ]; then
+  row ignore.docker n/a "no Dockerfile"
+else
+  nodi=""; issues=""
+  for f in $dockerfiles; do
+    di=""; for c in "$f.dockerignore" "$(dirname "$f")/.dockerignore" .dockerignore; do [ -f "$c" ] && { di=${c#./}; break; }; done
+    if [ -z "$di" ]; then nodi="$nodi $f"; continue; fi
+    grep -qxE '\*|\*\*|/\*' "$di" && continue   # allowlist: ignore everything, re-include with !
+    need="git env"; [[ " $eco " == *" node "* ]] && need="$need node_modules"
+    for n in $need; do
+      case $n in
+        git) rx='^/?(\*\*/)?\.git/?$' ;;
+        env) rx='^/?(\*\*/)?\.env' ;;
+        node_modules) rx='^/?(\*\*/)?node_modules/?$' ;;
+      esac
+      grep -qE "$rx" "$di" || issues="$issues $di:no-$n"
+    done
+  done
+  # shellcheck disable=SC2086
+  if [ -z "$nodi$issues" ]; then row ignore.docker ok "$(echo $dockerfiles)"
+  elif [ -z "$issues" ]; then row ignore.docker missing "no .dockerignore for:$nodi"
+  else row ignore.docker drift "${issues# }${nodi:+; no .dockerignore for:$nodi}"; fi
+fi
+
+# ignore.publish: what each publishable package ships
+if [ -z "$publishable" ]; then
+  row ignore.publish n/a "nothing publishable detected"
+else
+  for p in $publishable; do
+    case $p in
+      node)
+        if ! has npm; then row ignore.publish:npm verify "npm not installed: list the package with npm pack --dry-run"; continue; fi
+        packed=$(npm pack --dry-run --json --ignore-scripts 2>/dev/null | jq -r '.[0].files[].path' 2>/dev/null)
+        if [ -z "$packed" ]; then row ignore.publish:npm verify "npm pack --dry-run failed: list the package contents by hand"; continue; fi
+        issues=""
+        leaked=$(grep -E "$secret_rx" <<<"$packed" | grep -vE "$example_rx" | paste -sd' ' -)
+        [ -n "$leaked" ] && issues="$issues packs:[$leaked]"
+        jq -e '.files | type=="array" and length>0' package.json >/dev/null 2>&1 || issues="$issues no-files-allowlist$([ -f .npmignore ] && echo '(.npmignore replaces .gitignore)')"
+        [ -z "$issues" ] && row ignore.publish:npm ok "$(wc -l <<<"$packed") files, files allowlist" || row ignore.publish:npm drift "${issues# }" ;;
+      python?) row ignore.publish:python verify "if published: build (uv build / python -m build) and list the sdist (tar tzf dist/*.tar.gz)" ;;
+      rust?) row ignore.publish:rust verify "if published: cargo package --list --allow-dirty" ;;
+    esac
+  done
+fi
+
 # ---------- GitHub server-side settings ----------
 if [ "$platform" != github ] || [ -z "$meta" ]; then
   for i in merge.squash protect.branch protect.tags protect.signed secrets.scanning publish.env review.bot; do

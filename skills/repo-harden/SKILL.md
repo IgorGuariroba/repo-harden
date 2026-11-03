@@ -1,11 +1,11 @@
 ---
 name: repo-harden
-description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up git hooks (branch guard, secret scan, lint/test), branch/tag protection, signed commits, automated PR review (Copilot, CodeRabbit), Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
+description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up git hooks (branch guard, secret scan, lint/test), branch/tag protection, signed commits, ignore files (.gitignore, .dockerignore, package contents), automated PR review (Copilot, CodeRabbit), Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
 license: MIT
 compatibility: Requires git, bash and jq. GitHub automation needs gh authenticated with repo admin; other hosts use their CLI/API when available.
 metadata:
   author: IgorGuariroba
-  version: "3.4.0"
+  version: "3.5.0"
 ---
 
 # repo-harden
@@ -27,7 +27,7 @@ Paths are relative to this skill's directory.
    - Statuses: `ok`, `missing`, `drift`, `n/a`, `verify` (you resolve it), `manual` (needs the user, e.g. 2FA on a registry), `info` (context only).
    - The `platform` row gives the **scope**: `local`, `repo-write` or `admin`.
    - The `ecosystems` row lists the detected stacks.
-3. Resolve every `verify` row yourself: the ecosystem's audit tool, the CI config of another platform, the Renovate config, and the scope on a non-GitHub host (`references/other-platforms.md` §1). Each row ends as a concrete status.
+3. Resolve every `verify` row yourself: the ecosystem's audit tool, the CI config of another platform, the Renovate config, the build outputs and tracked secret-like files of `ignore.git:*`, and the scope on a non-GitHub host (`references/other-platforms.md` §1). Each row ends as a concrete status.
 
 If the argument is `check`, report and **stop here**.
 
@@ -69,6 +69,7 @@ First create the branch `chore/repo-harden` from the up-to-date default branch; 
 **Writing files:**
 - For each detected ecosystem, apply its profile from `references/ecosystems.md`. An unlisted ecosystem gets a profile you research and fill in with the same columns.
 - Templates in `assets/` are Node/GitHub examples. Each workflow opens with an `# INVARIANTS` header: keep every invariant and swap only the stack-specific steps. Add `automerge` only under its checklist condition.
+- **`ignore.*`:** start from each ecosystem's ignore baseline (`references/ecosystems.md`), then copy the repo to `/tmp`, run its install + build + test there, and add a pattern for every untracked file `git status --porcelain --untracked-files=all` shows. Prefer directory and glob patterns over single files. An existing ignore file keeps its content: append the new entries under a `# repo-harden` comment. Editor and OS files (`.idea/`, `.vscode/`, `.DS_Store`) go in the report as a `core.excludesFile` tip. A tracked secret-like file that is a real secret gets `git rm --cached` in the PR and a rotation step in the report. For npm, write a `files` allowlist from what the package's `main`/`exports`/`bin` need, and confirm it with `npm pack --dry-run`. Done when every `ignore.*` row is `ok` or `n/a` and the `/tmp` build leaves `git status` empty.
 - Pin actions with `scripts/pin-action.sh <owner/action>...`.
 - Fill every `{{PLACEHOLDER}}`. Done when `grep -r '{{' .github` is empty.
 - A file in `drift` gets a **targeted fix** and keeps the rest of its content.
@@ -107,10 +108,11 @@ Done when every admin item is applied, or `n/a` with its exact error recorded.
 2. Files changed and the PR link.
 3. What merges on its own: only bot PRs in the chosen `automerge` scope (never major), after green CI. Everything else waits for review.
 4. **Manual steps that need the user's 2FA**, listed for the user to run (they are never run by you): register the trusted publisher on each registry (`references/ecosystems.md`), make the first manual publish where the registry requires it, and afterwards disallow token publishing and revoke old tokens.
-5. **Maintainer recommendations**, as one block ready to paste into an issue or MR.
-6. When `publish.oidc` was applied: the release flow (bump version, tag `v<version>`, create release).
-7. When `protect.signed` was applied: the signing setup every contributor must run before opening a PR.
-8. How to undo the hooks (`git config --unset core.hooksPath`; one-off bypass with `ALLOW_MAIN=1` or `--no-verify`).
+5. **Secrets found in git** (`ignore.git:tracked`): each file, a reminder that it stays in the history, and that the user must rotate it.
+6. **Maintainer recommendations**, as one block ready to paste into an issue or MR.
+7. When `publish.oidc` was applied: the release flow (bump version, tag `v<version>`, create release).
+8. When `protect.signed` was applied: the signing setup every contributor must run before opening a PR.
+9. How to undo the hooks (`git config --unset core.hooksPath`; one-off bypass with `ALLOW_MAIN=1` or `--no-verify`).
 
 ## Guardrails
 - Touch only this run's own `chore/repo-harden` branch and PR. Leave publishing, tags and other PRs alone. Hook tests run only in `/tmp`, via `scripts/test-hooks.sh`.
