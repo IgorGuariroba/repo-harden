@@ -1,23 +1,52 @@
 #!/bin/sh
-# Blocks direct commits on protected branches.
-# Protected: git config hooks.protectedBranches (space or comma separated); default "main master".
-# Bypass: ALLOW_MAIN=1 git commit ...  (or git commit --no-verify)
+# 1. Blocks direct commits on protected branches.
+#    Protected: git config hooks.protectedBranches (space or comma separated); default "main master".
+#    Bypass: ALLOW_MAIN=1 git commit ...
+# 2. Hygiene on staged content (check_merge_conflict, check_added_large_files):
+#    blocks unresolved conflict markers and new files above git config hooks.maxFileKB (default 500; Git LFS files skipped).
+# Bypass everything: git commit --no-verify
+# Quality and secret-scan steps go after this block (see assets/githooks/staged.sh).
 
-[ "${ALLOW_MAIN:-}" = "1" ] && exit 0
+if [ "${ALLOW_MAIN:-}" != "1" ]; then
+  branch=$(git symbolic-ref --short -q HEAD)  # empty on detached HEAD: allowed
+  protected=$(git config --get hooks.protectedBranches | tr ',' ' ')
+  [ -n "$protected" ] || protected="main master"
+  for p in $protected; do
+    if [ -n "$branch" ] && [ "$branch" = "$p" ]; then
+      {
+        echo "✋ Direct commit on protected branch '$branch' is blocked."
+        echo "   Create a work branch:  git switch -c feat/<name>"
+        echo "   Deliberate bypass:     ALLOW_MAIN=1 git commit ..."
+      } >&2
+      exit 1
+    fi
+  done
+fi
 
-branch=$(git symbolic-ref --short -q HEAD) || exit 0  # detached HEAD: allow
+check_merge_conflict() {
+  hits=$(git diff --cached -U0 --no-color --diff-filter=ACMR | grep -nE '^\+(<{7}|>{7})( |$)' | head -5)
+  [ -z "$hits" ] && return 0
+  echo "✋ Unresolved merge conflict markers in staged changes:" >&2
+  printf '%s\n' "$hits" | sed 's/^/   /' >&2
+  return 1
+}
 
-protected=$(git config --get hooks.protectedBranches | tr ',' ' ')
-[ -n "$protected" ] || protected="main master"
+check_added_large_files() {
+  max_kb=$(git config --get hooks.maxFileKB); max_kb=${max_kb:-500}
+  big=$(git diff --cached --name-only --diff-filter=A -z | xargs -0 -I{} sh -c '
+    [ "$(git check-attr filter -- "$1" | sed "s/.*: //")" = lfs ] && exit 0
+    kb=$(( ($(git cat-file -s ":$1") + 1023) / 1024 ))
+    [ "$kb" -gt "$2" ] && echo "$1 (${kb} KB)"
+    exit 0' sh {} "$max_kb")
+  [ -z "$big" ] && return 0
+  {
+    echo "✋ New files above ${max_kb} KB (git config hooks.maxFileKB):"
+    printf '%s\n' "$big" | sed 's/^/   /'
+    echo "   Track them with Git LFS, or raise the limit if they belong in git."
+  } >&2
+  return 1
+}
 
-for p in $protected; do
-  if [ "$branch" = "$p" ]; then
-    {
-      echo "✋ Direct commit on protected branch '$branch' is blocked."
-      echo "   Create a work branch:  git switch -c feat/<name>"
-      echo "   Deliberate bypass:     ALLOW_MAIN=1 git commit ..."
-    } >&2
-    exit 1
-  fi
-done
+check_merge_conflict || exit 1
+check_added_large_files || exit 1
 exit 0

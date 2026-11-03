@@ -1,11 +1,11 @@
 ---
 name: repo-harden
-description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up git hooks (branch guard, secret scan, lint/test), branch/tag protection, signed commits, ignore files (.gitignore, .dockerignore, package contents), automated PR review (Copilot, CodeRabbit), Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
+description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up git hooks (branch guard, secret scan, conflict/large-file checks, lint/test, pre-commit framework, husky, lefthook), PR title checks, branch/tag protection, signed commits, ignore files (.gitignore, .dockerignore, package contents), automated PR review (Copilot, CodeRabbit), Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
 license: MIT
 compatibility: Requires git, bash and jq. GitHub automation needs gh authenticated with repo admin; other hosts use their CLI/API when available.
 metadata:
   author: IgorGuariroba
-  version: "3.5.0"
+  version: "3.6.0"
 ---
 
 # repo-harden
@@ -48,20 +48,25 @@ A reply that does not choose ("ok", "go", "sim") applies **every default**. "ok,
 |---|---|---|
 | publish: candidates marked `?` | publish to the registry of each publishable ecosystem of the target repo; if none exists, skip `publish.*` (`n/a`) | do not publish |
 | publish trigger | `release: published`, prereleases skipped | `push: tags ['v*']` |
+| `hooks.hygiene` | on: conflict markers + new files above 500 KB blocked at commit | another limit; off |
 | `hooks.quality` | `pre-commit` lint/format on staged files + `pre-push` typecheck/tests, with the project's own tools | `pre-commit` only; none |
 | `hooks.secrets` scanner | the ecosystem's recommended scanner (`references/ecosystems.md`), installed project-locally, wired into `pre-commit` | another scanner; none |
 | legacy branch protection | migrate it into the ruleset, then remove it | migrate and keep it; leave it alone |
 | `creation` rule on the tag ruleset | on; the release tool the audit detected (release-please, semantic-release, changesets) goes to the bypass list | off |
 | hooks on a repo the user does not own | commit them, and give the reason in the PR body | local-only |
 | `protect.signed` (signed commits on the default branch) | on: applied after this run's PR merges and once the user's own commits are verified (otherwise pending, with the signing setup in the report); warn that every contributor must sign, since unsigned commits on a PR branch block its merge | off |
+| `ci.pr-title` (when a convention is detected) | a `PR title` workflow checking the repo's convention (Conventional Commits unless its commitlint/commitizen config says otherwise), added to the required checks | none |
 | `review.bot` reviewer | Copilot code review (ruleset rule); if refused, recommend CodeRabbit | CodeRabbit (user installs the App); none |
 | `automerge` scope | `security-patch-minor` with semver patch/minor | + any patch; + any patch/minor (major never) |
 
 ## 3. Apply locally
 First create the branch `chore/repo-harden` from the up-to-date default branch; every file this run writes lands there.
 
-- **Hooks:** with a hook manager (husky, lefthook, pre-commit, simple-git-hooks), add the check from `assets/githooks/` to that manager's hook. Without one, copy `assets/githooks/*` to `.githooks/`, run `chmod +x` and `git config core.hooksPath .githooks`, and document the activation command in the `prepare` script or the README. An existing hook keeps its content, with the check added at its top. Validate with `scripts/test-hooks.sh <hooks-dir>`; done when it exits 0.
-- **`hooks.quality`:** take the commands from the project's own config (package scripts, `lint-staged`, `pyproject.toml`, `Makefile`, CI validation steps) and the ecosystem's profile in `references/ecosystems.md`. `pre-commit` gets the fast checks on staged files only; `pre-push` gets typecheck and tests. Skip a tool the project does not configure, and ask before adding a new one. Place the steps after the branch check. Done when a commit with a lint error is blocked in a `/tmp` copy of the repo, and the audit row is `ok`.
+- **Hooks:** with a hook manager (husky, lefthook, pre-commit, simple-git-hooks), add the checks from `assets/githooks/` to that manager's hooks, following its row in `references/ecosystems.md` § Hook managers. Without one, copy `assets/githooks/*` to `.githooks/`, run `chmod +x` and `git config core.hooksPath .githooks`. An existing hook keeps its content, with the checks added at its top. Validate with `scripts/test-hooks.sh <hooks-dir>`; done when it exits 0.
+- **`hooks.hygiene`:** the conflict-marker and large-file checks run right after the branch check (built into `assets/githooks/pre-commit`; the framework gets `check-merge-conflict` + `check-added-large-files`). A limit other than 500 KB goes in `git config hooks.maxFileKB` and the README (or `--maxkb` with the framework).
+- **`hooks.quality`:** take the commands from the project's own config (package scripts, `lint-staged`, `pyproject.toml`, `Makefile`, CI validation steps) and the ecosystem's profile in `references/ecosystems.md`. `pre-commit` gets the fast checks on **staged files only**, through the manager's staged mechanism, or `run_staged` from `assets/githooks/staged.sh` without one: never a whole-repo command (`eslint .`, `npm run lint`) and never a hand-rolled `git diff --cached` list. `pre-push` gets typecheck and tests. Skip a tool the project does not configure, and ask before adding a new one. Place the steps after the hygiene checks. Done when, in a `/tmp` copy of the repo, a commit with a lint error is blocked, a typical one-file commit takes under ~5 s (`time git commit`), and the audit row is `ok`.
+- **`hooks.installed`:** activate what the repo declares (`pre-commit install`, `npm install` for husky, `lefthook install`, `core.hooksPath`), with `default_install_hook_types` covering every framework stage. A fresh clone must activate them on its own (`prepare`/`postinstall`) or find the command in the README; add it there when missing. Done when the audit row is `ok`.
+- **Hook pinning:** freeze remote framework hooks with `pre-commit autoupdate --freeze`, and install any tool a hook needs at a fixed version (never `@latest`).
 - **`hooks.secrets`:** a `pre-commit` step running the chosen scanner on staged changes. Unless the user declined, install the scanner first, project-locally when the ecosystem allows it (`references/ecosystems.md`). This is the only tool the run installs without asking separately.
 - **`deps.vulns`:** use the ecosystem's audit/fix tool (`references/ecosystems.md`), staying within semver-compatible fixes. Report leftovers with their advisory IDs.
 
@@ -71,6 +76,7 @@ First create the branch `chore/repo-harden` from the up-to-date default branch; 
 - Templates in `assets/` are Node/GitHub examples. Each workflow opens with an `# INVARIANTS` header: keep every invariant and swap only the stack-specific steps. Add `automerge` only under its checklist condition.
 - **`ignore.*`:** start from each ecosystem's ignore baseline (`references/ecosystems.md`), then copy the repo to `/tmp`, run its install + build + test there, and add a pattern for every untracked file `git status --porcelain --untracked-files=all` shows. Prefer directory and glob patterns over single files. An existing ignore file keeps its content: append the new entries under a `# repo-harden` comment. Editor and OS files (`.idea/`, `.vscode/`, `.DS_Store`) go in the report as a `core.excludesFile` tip. A tracked secret-like file that is a real secret gets `git rm --cached` in the PR and a rotation step in the report. For npm, write a `files` allowlist from what the package's `main`/`exports`/`bin` need, and confirm it with `npm pack --dry-run`. Done when every `ignore.*` row is `ok` or `n/a` and the `/tmp` build leaves `git status` empty.
 - Pin actions with `scripts/pin-action.sh <owner/action>...`.
+- **`ci.pr-title`:** start from `assets/workflows/pr-title.yml` and keep its `# INVARIANTS`; take the allowed types from the repo's commitlint/commitizen config when there is one. Its job name (`PR title`) joins the required checks in §5. Never add a `commit-msg` hook: with squash-only merges the PR title is the commit message.
 - Fill every `{{PLACEHOLDER}}`. Done when `grep -r '{{' .github` is empty.
 - A file in `drift` gets a **targeted fix** and keeps the rest of its content.
 
@@ -112,7 +118,7 @@ Done when every admin item is applied, or `n/a` with its exact error recorded.
 6. **Maintainer recommendations**, as one block ready to paste into an issue or MR.
 7. When `publish.oidc` was applied: the release flow (bump version, tag `v<version>`, create release).
 8. When `protect.signed` was applied: the signing setup every contributor must run before opening a PR.
-9. How to undo the hooks (`git config --unset core.hooksPath`; one-off bypass with `ALLOW_MAIN=1` or `--no-verify`).
+9. How to undo the hooks (`git config --unset core.hooksPath`; one-off bypass with `ALLOW_MAIN=1` or `--no-verify`; large-file limit with `git config hooks.maxFileKB`).
 
 ## Guardrails
 - Touch only this run's own `chore/repo-harden` branch and PR. Leave publishing, tags and other PRs alone. Hook tests run only in `/tmp`, via `scripts/test-hooks.sh`.
