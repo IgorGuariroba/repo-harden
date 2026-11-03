@@ -76,6 +76,28 @@ else
   row hooks.secrets missing "installed scanners: [${scanners% }] (default: install the ecosystem's scanner unless declined)"
 fi
 
+# hooks.quality: pre-commit runs lint/format, pre-push runs typecheck/tests (the project's own commands)
+lint_rx='lint-staged|nano-staged|eslint|biome|oxlint|prettier|ruff|black|flake8|pylint|isort|gofmt|goimports|golangci-lint|cargo fmt|clippy|rubocop|(npm|pnpm|yarn|bun)( run)? (lint|format|fmt|check)|make (lint|fmt|format)'
+test_rx='(npm|pnpm|yarn|bun)( run)? (test|typecheck|type-check)|npm t\b|\btsc\b|vitest|jest|pytest|mypy|pyright|tox|nox|go test|go vet|cargo test|rspec|make (test|check)'
+pc_files=$(ls "$hookdir/pre-commit" .husky/pre-commit .pre-commit-config.yaml lefthook.y*ml .lefthook.y*ml 2>/dev/null | tr '\n' ' ')
+pp_files=$(ls "$hookdir/pre-push" .husky/pre-push .pre-commit-config.yaml lefthook.y*ml .lefthook.y*ml 2>/dev/null | tr '\n' ' ')
+[ -f package.json ] && jq -e '.["lint-staged"]' package.json >/dev/null 2>&1 && pc_files="$pc_files package.json"
+q_lint=no; q_test=no
+# shellcheck disable=SC2086
+[ -n "${pc_files// /}" ] && grep -qE "$lint_rx" $pc_files 2>/dev/null && q_lint=yes
+# shellcheck disable=SC2086
+[ -n "${pp_files// /}" ] && grep -qE "$test_rx" $pp_files 2>/dev/null && q_test=yes
+if [ -z "$eco$other" ]; then
+  row hooks.quality n/a "no stack detected: nothing to lint or test"
+elif [ $q_lint = yes ] && [ $q_test = yes ]; then
+  row hooks.quality ok "pre-commit lint/format + pre-push typecheck/tests"
+elif [ $q_lint = no ] && [ $q_test = no ]; then
+  row hooks.quality missing "no lint/format in pre-commit and no typecheck/tests in pre-push (stack: ${eco:-$other})"
+else
+  miss=""; [ $q_lint = no ] && miss="pre-commit lint/format"; [ $q_test = no ] && miss="pre-push typecheck/tests"
+  row hooks.quality drift "missing: $miss"
+fi
+
 # ---------- local: dependency vulnerabilities ----------
 npm_audit_row() { # dir detail-suffix
   local v

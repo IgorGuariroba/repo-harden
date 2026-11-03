@@ -1,11 +1,11 @@
 ---
 name: repo-harden
-description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up branch/tag protection, automated PR review (Copilot, CodeRabbit), Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
+description: Harden a repository's security setup — audit it against a checklist and apply only what is missing, within the user's permissions. Use when asked to harden, secure or audit a repo, or to set up git hooks (branch guard, secret scan, lint/test), branch/tag protection, automated PR review (Copilot, CodeRabbit), Dependabot auto-merge or Trusted Publishing (OIDC). Pass "check" to audit only.
 license: MIT
 compatibility: Requires git, bash and jq. GitHub automation needs gh authenticated with repo admin; other hosts use their CLI/API when available.
 metadata:
   author: IgorGuariroba
-  version: "3.2.0"
+  version: "3.3.0"
 ---
 
 # repo-harden
@@ -48,6 +48,7 @@ A reply that does not choose ("ok", "go", "sim") applies **every default**. "ok,
 |---|---|---|
 | publish: candidates marked `?` | publish to the registry of each publishable ecosystem of the target repo; if none exists, skip `publish.*` (`n/a`) | do not publish |
 | publish trigger | `release: published`, prereleases skipped | `push: tags ['v*']` |
+| `hooks.quality` | `pre-commit` lint/format on staged files + `pre-push` typecheck/tests, with the project's own tools | `pre-commit` only; none |
 | `hooks.secrets` scanner | the ecosystem's recommended scanner (`references/ecosystems.md`), installed project-locally, wired into `pre-commit` | another scanner; none |
 | legacy branch protection | migrate it into the ruleset, then remove it | migrate and keep it; leave it alone |
 | `creation` rule on the tag ruleset | on; the release tool the audit detected (release-please, semantic-release, changesets) goes to the bypass list | off |
@@ -59,6 +60,7 @@ A reply that does not choose ("ok", "go", "sim") applies **every default**. "ok,
 First create the branch `chore/repo-harden` from the up-to-date default branch; every file this run writes lands there.
 
 - **Hooks:** with a hook manager (husky, lefthook, pre-commit, simple-git-hooks), add the check from `assets/githooks/` to that manager's hook. Without one, copy `assets/githooks/*` to `.githooks/`, run `chmod +x` and `git config core.hooksPath .githooks`, and document the activation command in the `prepare` script or the README. An existing hook keeps its content, with the check added at its top. Validate with `scripts/test-hooks.sh <hooks-dir>`; done when it exits 0.
+- **`hooks.quality`:** take the commands from the project's own config (package scripts, `lint-staged`, `pyproject.toml`, `Makefile`, CI validation steps) and the ecosystem's profile in `references/ecosystems.md`. `pre-commit` gets the fast checks on staged files only; `pre-push` gets typecheck and tests. Skip a tool the project does not configure, and ask before adding a new one. Place the steps after the branch check. Done when a commit with a lint error is blocked in a `/tmp` copy of the repo, and the audit row is `ok`.
 - **`hooks.secrets`:** a `pre-commit` step running the chosen scanner on staged changes. Unless the user declined, install the scanner first, project-locally when the ecosystem allows it (`references/ecosystems.md`). This is the only tool the run installs without asking separately.
 - **`deps.vulns`:** use the ecosystem's audit/fix tool (`references/ecosystems.md`), staying within semver-compatible fixes. Report leftovers with their advisory IDs.
 

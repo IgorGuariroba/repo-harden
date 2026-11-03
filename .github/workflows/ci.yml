@@ -37,6 +37,9 @@ jobs:
       - name: Audit review.bot rows
         run: skills/repo-harden/scripts/test-audit-review.sh
 
+      - name: Audit hooks.quality rows
+        run: skills/repo-harden/scripts/test-audit-quality.sh
+
       - name: Audit IDs defined in checklist
         run: skills/repo-harden/scripts/test-checklist-ids.sh
 
