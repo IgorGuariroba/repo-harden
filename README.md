@@ -40,14 +40,6 @@ The checklist is a set of **goals with acceptance criteria** ([`checklist.md`](s
 
 Plan limits are detected and reported. For example, a private repo on GitHub Free has no rulesets, so it gets hooks plus a recommendation.
 
-## Contributing
-
-Enable the repository's hooks once per clone (they block commits/pushes to `main` and scan staged changes with `gitleaks`):
-
-```bash
-git config core.hooksPath .githooks
-```
-
 ## Run the audit without an agent
 
 ```bash
