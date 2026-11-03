@@ -43,6 +43,9 @@ jobs:
       - name: Audit hooks.quality rows
         run: skills/repo-harden/scripts/test-audit-quality.sh
 
+      - name: Audit hooks.hygiene, hooks.installed, ci.pr-title rows
+        run: skills/repo-harden/scripts/test-audit-hooks.sh
+
       - name: Audit ignore.* rows
         run: skills/repo-harden/scripts/test-audit-ignore.sh
 

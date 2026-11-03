@@ -25,14 +25,17 @@ The checklist is a set of **goals with acceptance criteria** ([`checklist.md`](s
 |---|---|
 | `hooks.protect-branch` | `pre-commit`/`pre-push` block direct commits and pushes to `main`/`master` |
 | `hooks.secrets` | pre-commit secret scan (gitleaks, detect-secrets…), on by default |
-| `hooks.quality` | pre-commit lint/format on staged files, pre-push typecheck/tests, with the project's own tools |
+| `hooks.hygiene` | pre-commit blocks unresolved conflict markers and new files above 500 KB (Git LFS skipped) |
+| `hooks.quality` | fast pre-commit lint/format on staged files only (partial staging handled), pre-push typecheck/tests, with the project's own tools |
+| `hooks.installed` | declared hooks are really active (`pre-commit install`, `default_install_hook_types`, husky/lefthook) and a fresh clone can activate them |
 | `deps.vulns` | 0 known vulnerabilities (`npm audit`, `pip-audit`, `govulncheck`, `cargo audit`…) |
-| `deps.bot` | Dependabot/Renovate for every ecosystem + CI actions, security fixes grouped |
+| `deps.bot` | Dependabot/Renovate for every ecosystem + CI actions + `pre-commit` hooks, security fixes grouped |
 | `ignore.git` | `.gitignore` covers secrets, dependencies and the outputs the build really produces |
 | `ignore.docker` | `.dockerignore` keeps `.git`, `.env` and local dependencies out of every build context |
 | `ignore.publish` | published packages ship only what they need (`files` allowlist, `npm pack --dry-run`) |
 | `ci.pipeline` | CI on every PR with a fixed job name and read-only token |
-| `ci.pinned` | third-party actions pinned by full commit SHA |
+| `ci.pinned` | third-party actions and `pre-commit` hooks pinned by full commit SHA, no `@latest` installs |
+| `ci.pr-title` | with a commit convention, CI validates the PR title (the squash commit message) instead of a `commit-msg` hook |
 | `automerge` | security patch/minor bot PRs auto-merge **only after CI is green**, never running PR code |
 | `publish.oidc` | Trusted Publishing (npm, PyPI, crates.io) with provenance, no long-lived tokens |
 | `publish.env` | publish credentials reachable only from `v*` tags |

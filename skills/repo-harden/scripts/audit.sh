@@ -76,27 +76,132 @@ else
   row hooks.secrets missing "installed scanners: [${scanners% }] (default: install the ecosystem's scanner unless declined)"
 fi
 
-# hooks.quality: pre-commit runs lint/format, pre-push runs typecheck/tests (the project's own commands)
+# What runs at commit time and at push time, per hook source (comments stripped).
+hook_names='pre-commit|pre-push|commit-msg|prepare-commit-msg|post-checkout|post-merge|pre-rebase'
+lh=$(ls lefthook.y*ml .lefthook.y*ml 2>/dev/null | head -1)
+yaml_section() { awk -v k="$2" '$0 ~ "^"k":" { on=1; next } on && /^[^ #]/ { on=0 } on' "$1" 2>/dev/null; }
+plain_text() { for f in "$@"; do [ -f "$f" ] && sed -E 's/(^|[[:space:]])#.*$//' "$f"; done; }
+# pre-commit framework: one line per hook, "<C|-><P|->\t<hook block>" (C = runs at commit, P = runs at push)
+fw_hooks() {
+  [ -f .pre-commit-config.yaml ] || return 0
+  awk '
+    function flush(  s, c, p) {
+      if (blk == "") return
+      s = (blk ~ /stages:/) ? blk : dflt
+      c = (s !~ /stages:/) || (s ~ /stages:[^]]*(pre-commit|[[ ,]commit[] ,])/)
+      p = (s !~ /stages:/) || (s ~ /stages:[^]]*(pre-push|[[ ,]push[] ,])/)
+      print (c ? "C" : "-") (p ? "P" : "-") "\t" blk; blk = ""
+    }
+    /^default_stages:/ { dflt = $0; next }
+    /^[[:space:]]*- id:/ { flush(); blk = $0; next }
+    /^[[:space:]]*-[[:space:]]*repo:/ || /^[^[:space:]#]/ { flush(); next }
+    blk != "" { sub(/[[:space:]]#.*/, ""); blk = blk " " $0 }
+    END { flush() }' .pre-commit-config.yaml
+}
+# pre-commit framework remote repos: "<repo>\t<rev>"
+fw_remote=""
+[ -f .pre-commit-config.yaml ] && fw_remote=$(awk '
+  /^[[:space:]]*-?[[:space:]]*repo:/ { r = $0; sub(/.*repo:[[:space:]]*/, "", r); sub(/[[:space:]]+#.*/, "", r); next }
+  /^[[:space:]]*rev:/ && r != "" && r != "local" && r != "meta" { v = $0; sub(/.*rev:[[:space:]]*/, "", v); print r "\t" v; r = "" }' .pre-commit-config.yaml)
+fw=$(fw_hooks)
+pc_sh=$(plain_text "$hookdir/pre-commit" .husky/pre-commit; [ -n "$lh" ] && yaml_section "$lh" pre-commit)
+pp_sh=$(plain_text "$hookdir/pre-push" .husky/pre-push; [ -n "$lh" ] && yaml_section "$lh" pre-push)
+pc_fw=$(grep -E '^C' <<<"$fw" | cut -f2-)
+pp_fw=$(grep -E '^.P' <<<"$fw" | cut -f2-)
+all_pc="$pc_sh"$'\n'"$pc_fw"
+
+# hooks.hygiene: pre-commit blocks conflict markers and large new files
+h_miss=""
+grep -qE 'check[-_]merge[-_]conflict' <<<"$all_pc" || h_miss="$h_miss check-merge-conflict"
+grep -qE 'check[-_]added[-_]large[-_]files' <<<"$all_pc" || h_miss="$h_miss check-added-large-files"
+if [ -z "$h_miss" ]; then row hooks.hygiene ok "conflict markers + large files checked at commit"
+elif [ "$h_miss" = " check-merge-conflict check-added-large-files" ]; then row hooks.hygiene missing "pre-commit checks neither conflict markers nor large files"
+else row hooks.hygiene drift "pre-commit lacks:$h_miss"; fi
+
+# hooks.quality: pre-commit runs lint/format on staged files, fast; pre-push runs typecheck/tests (the project's own commands)
 lint_rx='lint-staged|nano-staged|eslint|biome|oxlint|prettier|ruff|black|flake8|pylint|isort|gofmt|goimports|golangci-lint|cargo fmt|clippy|rubocop|(npm|pnpm|yarn|bun)( run)? (lint|format|fmt|check)|make (lint|fmt|format)'
-test_rx='(npm|pnpm|yarn|bun)( run)? (test|typecheck|type-check)|npm t\b|\btsc\b|vitest|jest|pytest|mypy|pyright|tox|nox|go test|go vet|cargo test|rspec|make (test|check)'
-pc_files=$(ls "$hookdir/pre-commit" .husky/pre-commit .pre-commit-config.yaml lefthook.y*ml .lefthook.y*ml 2>/dev/null | tr '\n' ' ')
-pp_files=$(ls "$hookdir/pre-push" .husky/pre-push .pre-commit-config.yaml lefthook.y*ml .lefthook.y*ml 2>/dev/null | tr '\n' ' ')
-[ -f package.json ] && jq -e '.["lint-staged"]' package.json >/dev/null 2>&1 && pc_files="$pc_files package.json"
+test_rx='(npm|pnpm|yarn|bun)( run)? (test|typecheck|type-check)|npm t\b|\btsc\b|vitest|jest|pytest|mypy|pyright|tox|nox|go test|go vet|cargo test|cargo clippy|rspec|make (test|check)'
+# heuristic: a linter given "."/"./...", lefthook {all_files}, or a package/make lint script works on the whole repo
+whole_rx='\b(eslint|prettier|biome|oxlint|ruff|black|flake8|pylint|isort|gofmt|goimports|rubocop)\b[^|;&]*[[:space:]](\.|\./|\./\.\.\.)([[:space:]]|$|[;&|])|\{all_files\}|(npm|pnpm|yarn|bun)( run)? (lint|format)([[:space:]]|$|[;&|])|make (lint|fmt|format)([[:space:]]|$|[;&|])'
 q_lint=no; q_test=no
-# shellcheck disable=SC2086
-[ -n "${pc_files// /}" ] && grep -qE "$lint_rx" $pc_files 2>/dev/null && q_lint=yes
-# shellcheck disable=SC2086
-[ -n "${pp_files// /}" ] && grep -qE "$test_rx" $pp_files 2>/dev/null && q_test=yes
+grep -qE "$lint_rx" <<<"$all_pc" && q_lint=yes
+grep -qE "$test_rx" <<<"$pp_sh"$'\n'"$pp_fw" && q_test=yes
+whole=$(grep -oE "$whole_rx" <<<"$pc_sh" | sed -E 's/[[:space:];&|]+$//' | sort -u | head -3 | paste -sd',' -)
+fw_whole=$(grep -E "$lint_rx" <<<"$pc_fw" | grep -E 'pass_filenames: *false' | grep -oE 'id: *[^ ]+' | sed 's/id: *//' | paste -sd',' -)
+slow=$(grep -oE "$test_rx" <<<"$all_pc" | sort -u | head -3 | paste -sd',' -)
+rawlist=$(grep -E 'git diff (--cached|--staged)[^|;]*--name-only|git diff --name-only[^|;]*(--cached|--staged)' <<<"$pc_sh" | grep -vE -- '-z\b' ; grep -E 'git diff (--cached|--staged)[^|;]*--name-only|git diff --name-only[^|;]*(--cached|--staged)' <<<"$pc_sh" | grep -v -- '--diff-filter')
+q_iss=""
+[ -n "$whole" ] && q_iss="$q_iss; pre-commit lints the whole repo, not the staged files: $whole"
+[ -n "$fw_whole" ] && q_iss="$q_iss; pre-commit framework lint hooks with pass_filenames: false: $fw_whole"
+[ -n "$slow" ] && q_iss="$q_iss; pre-commit runs typecheck/tests (slow: move them to pre-push): $slow"
+[ -n "$rawlist" ] && q_iss="$q_iss; staged file list without -z or --diff-filter=ACMR (use run_staged from assets/githooks/staged.sh)"
 if [ -z "$eco$other" ]; then
   row hooks.quality n/a "no stack detected: nothing to lint or test"
-elif [ $q_lint = yes ] && [ $q_test = yes ]; then
-  row hooks.quality ok "pre-commit lint/format + pre-push typecheck/tests"
-elif [ $q_lint = no ] && [ $q_test = no ]; then
+elif [ $q_lint = yes ] && [ $q_test = yes ] && [ -z "$q_iss" ]; then
+  row hooks.quality ok "pre-commit lint/format on staged files + pre-push typecheck/tests"
+elif [ $q_lint = no ] && [ $q_test = no ] && [ -z "$q_iss" ]; then
   row hooks.quality missing "no lint/format in pre-commit and no typecheck/tests in pre-push (stack: ${eco:-$other})"
 else
-  miss=""; [ $q_lint = no ] && miss="pre-commit lint/format"; [ $q_test = no ] && miss="pre-push typecheck/tests"
-  row hooks.quality drift "missing: $miss"
+  [ $q_lint = no ] && q_iss="; missing pre-commit lint/format$q_iss"
+  [ $q_test = no ] && q_iss="; missing pre-push typecheck/tests$q_iss"
+  row hooks.quality drift "${q_iss#; }"
 fi
+
+# hooks.installed: every hook type the repo declares is active in this clone, and a fresh clone can activate it
+declared=""; i_iss=""; sig=""; install=""; act_rx=""
+case $mgr in
+  pre-commit)
+    cfg=$(sed -E 's/(^|[[:space:]])#.*$//' .pre-commit-config.yaml)
+    declared="pre-commit $(grep -oE '\b(pre-push|commit-msg|prepare-commit-msg|post-checkout|post-merge)\b' <<<"$cfg" | sort -u | tr '\n' ' ')"
+    grep -qE 'stages:[^]]*[[ ,]push[] ,]' <<<"$cfg" && declared="$declared pre-push"
+    declared=$(tr ' ' '\n' <<<"$declared" | grep . | sort -u | tr '\n' ' ')
+    dit=$(grep -E '^default_install_hook_types:' <<<"$cfg")
+    for h in $declared; do
+      [ "$h" = pre-commit ] && [ -z "$dit" ] && continue
+      grep -qE "[[ ,]${h}[] ,]" <<<"$dit" || i_iss="$i_iss; default_install_hook_types lacks $h (a plain 'pre-commit install' skips it)"
+    done
+    [ -n "$hp" ] && i_iss="$i_iss; core.hooksPath=$hp is set: 'pre-commit install' refuses to run (git config --unset core.hooksPath)"
+    sig='hook-impl|File generated by pre-commit'; install="pre-commit install"; act_rx='pre-commit install' ;;
+  husky)
+    declared=$(for f in .husky/*; do [ -f "$f" ] && basename "$f"; done | grep -xE "$hook_names" | tr '\n' ' ')
+    case "$hp" in .husky|.husky/_) ;; *) i_iss="$i_iss; core.hooksPath=${hp:-unset} (husky expects .husky/_)" ;; esac
+    install="npm install (runs husky through the prepare script)"; act_rx='husky' ;;
+  lefthook)
+    declared=$(grep -oE "^($hook_names):" "$lh" | tr -d ':' | tr '\n' ' ')
+    sig='lefthook'; install="lefthook install"; act_rx='lefthook install' ;;
+  simple-git-hooks)
+    declared=$(jq -r '.["simple-git-hooks"] | keys[]' package.json 2>/dev/null | grep -xE "$hook_names" | tr '\n' ' ')
+    install="npx simple-git-hooks"; act_rx='simple-git-hooks' ;;
+  *)
+    decl_dir=$(git ls-files 2>/dev/null | grep -E "^(\.githooks|githooks|\.hooks|hooks|\.git-hooks|git-hooks|scripts/(git-)?hooks|tools/(git-)?hooks)/($hook_names)$" | head -1 | xargs -r dirname)
+    if [ -n "$decl_dir" ]; then
+      declared=$(git ls-files -- "$decl_dir" | sed "s#^$decl_dir/##" | grep -xE "$hook_names" | tr '\n' ' ')
+      [ "${hp%/}" = "$decl_dir" ] || i_iss="$i_iss; core.hooksPath=${hp:-unset} (expected $decl_dir)"
+      install="git config core.hooksPath $decl_dir"; act_rx='core\.?hooksPath'
+    fi ;;
+esac
+not_inst=""; foreign=""
+for h in $declared; do
+  if [ ! -x "$hookdir/$h" ]; then not_inst="$not_inst $h"
+  elif [ -n "$sig" ] && ! grep -qE "$sig" "$hookdir/$h"; then foreign="$foreign $h"; fi
+done
+[ -n "$not_inst" ] && i_iss="$i_iss; not installed in $hookdir:$not_inst (run: $install)"
+[ -n "$foreign" ] && i_iss="$i_iss; $hookdir has hooks that do not call $mgr:$foreign (run: $install)"
+if [ -n "$act_rx" ]; then
+  prep=$([ -f package.json ] && jq -r '[.scripts.prepare, .scripts.postinstall, (.devDependencies // {} | keys | join(" "))] | map(. // "") | join(" ")' package.json 2>/dev/null)
+  [ "$mgr" = lefthook ] && act_rx="$act_rx|lefthook"  # the lefthook npm package installs itself on postinstall
+  act_docs=$(git ls-files -- 'README*' 'CONTRIBUTING*' '.github/CONTRIBUTING*' 'docs/*.md' 2>/dev/null)
+  documented=no
+  grep -qE "$act_rx" <<<"$prep" && documented=yes
+  while IFS= read -r f; do [ -n "$f" ] && grep -qE "$act_rx" -- "$f" 2>/dev/null && documented=yes; done <<<"$act_docs"
+  [ $documented = yes ] ||
+    i_iss="$i_iss; activation for a fresh clone is neither automatic (prepare/postinstall) nor documented in README/CONTRIBUTING: $install"
+fi
+if [ -z "${declared// /}" ]; then
+  if [ -x "$hookdir/pre-commit" ] || [ -x "$hookdir/pre-push" ]; then row hooks.installed ok "local-only hooks in $hookdir (not versioned)"
+  else row hooks.installed n/a "no hooks declared"; fi
+elif [ -z "$i_iss" ]; then row hooks.installed ok "[${declared% }] active in $hookdir (manager=${mgr:-none})"
+else row hooks.installed drift "${i_iss#; }"; fi
 
 # ---------- local: dependency vulnerabilities ----------
 npm_audit_row() { # dir detail-suffix
@@ -157,12 +262,13 @@ ci_cfg=${ci_cfg# }
 dep=""; for f in .github/dependabot.yml .github/dependabot.yaml; do [ -f "$f" ] && dep=$f; done
 ren=""; for f in renovate.json renovate.json5 .renovaterc .renovaterc.json .github/renovate.json .github/renovate.json5 .gitlab/renovate.json; do [ -f "$f" ] && ren=$f; done
 if [ -n "$ren" ]; then
-  row deps.bot verify "Renovate ($ren): confirm it covers [$eco $other] + CI actions and groups security patch/minor"
+  row deps.bot verify "Renovate ($ren): confirm it covers [$eco $other] + CI actions$([ -n "$fw_remote" ] && echo ' + pre-commit hooks (opt-in: "pre-commit": {"enabled": true})') and groups security patch/minor"
 elif [ -n "$dep" ]; then
   miss=""
   want=""
   for e in $eco; do case $e in node) want="$want npm";; python) if grep -qE '(^|/)uv\.lock$' <<<"$manifests"; then want="$want uv"; else want="$want pip"; fi;; go) want="$want gomod";; rust) want="$want cargo";; esac; done
   [ -n "$wfs" ] && want="$want github-actions"
+  [ -n "$fw_remote" ] && want="$want pre-commit"
   for w in $want; do grep -qE "package-ecosystem: *[\"']?${w}[\"']?\s*\$" "$dep" || miss="$miss $w"; done
   [ -n "$eco" ] && ! grep -q 'security-patch-minor' "$dep" && miss="$miss group:security-patch-minor"
   [ -z "$miss" ] && row deps.bot ok "$dep covers:$want" || row deps.bot drift "$dep missing:$miss"
@@ -196,6 +302,42 @@ if [ -n "$wfs" ]; then
   [ -z "$unpinned" ] && row ci.pinned ok "all actions pinned by SHA" || row ci.pinned drift "not pinned: $unpinned"
 elif [ -n "$ci_cfg" ]; then
   row ci.pinned verify "$ci_cfg: check images/includes/components pinned by digest or SHA"
+fi
+# ci.pinned:pre-commit: remote hooks frozen to a SHA with the version in a comment (pre-commit autoupdate --freeze)
+if [ -n "$fw_remote" ]; then
+  unfrozen=$(grep -vE $'\t''["'\'']?[0-9a-f]{40}["'\'']?[[:space:]]+#[[:space:]]*frozen:' <<<"$fw_remote" | sed -E $'s/\t/@/; s/[[:space:]]+#.*//' | paste -sd' ' -)
+  [ -z "$unfrozen" ] && row ci.pinned:pre-commit ok "every remote hook frozen to a SHA" || row ci.pinned:pre-commit drift "not frozen (pre-commit autoupdate --freeze): $unfrozen"
+fi
+
+# ci.pr-title: with a commit convention, CI validates the PR title (it becomes the squash commit message)
+conv_rx='^[a-z]+(\([^)]+\))?!?: .+'
+conv=$(ls commitlint.config.* .commitlintrc* .czrc .cz.json .cz.toml cz.toml cz.json release-please-config.json .releaserc* release.config.* 2>/dev/null | paste -sd' ' -)
+[ -f package.json ] && jq -e '.commitlint or .config.commitizen or .release' package.json >/dev/null 2>&1 && conv="$conv package.json"
+[ -f pyproject.toml ] && grep -qE '^\[tool\.commitizen\]' pyproject.toml && conv="$conv pyproject.toml"
+subjects=$(git log --no-merges -n 20 --format=%s 2>/dev/null)
+n_subj=$(grep -c . <<<"$subjects"); n_conv=$(grep -cE "$conv_rx" <<<"$subjects")
+[ "$n_subj" -ge 5 ] && [ $((n_conv * 5)) -ge $((n_subj * 4)) ] && conv="$conv history($n_conv/$n_subj)"
+conv=${conv# }
+if [ -z "$conv" ]; then
+  row ci.pr-title n/a "no commit convention (commitlint/commitizen/release tool config, or >=80% conventional subjects)"
+elif [ -n "$wfs" ]; then
+  # shellcheck disable=SC2086
+  tw=$(grep -lE 'pull_request\.title|action-semantic-pull-request' $wfs 2>/dev/null)
+  if [ -z "$tw" ]; then
+    row ci.pr-title missing "convention [$conv], no workflow validates the PR title (assets/workflows/pr-title.yml)"
+  else
+    t_iss=""
+    for f in $tw; do
+      grep -qE '^\s*types:.*\bedited\b' "$f" || t_iss="$t_iss $f:not-rerun-when-title-edited"
+      grep -E 'pull_request\.title' "$f" | grep -qvE '^\s*[A-Za-z_][A-Za-z0-9_]*:\s*\$\{\{\s*github\.event\.pull_request\.title\s*\}\}\s*$' && t_iss="$t_iss $f:title-interpolated-in-script(injection)"
+    done
+    # shellcheck disable=SC2086
+    [ -z "$t_iss" ] && row ci.pr-title ok "$(echo $tw) (convention [$conv])" || row ci.pr-title drift "${t_iss# }"
+  fi
+elif [ -n "$ci_cfg" ]; then
+  row ci.pr-title verify "convention [$conv]: check that $ci_cfg validates the MR/PR title"
+else
+  row ci.pr-title missing "convention [$conv], no CI to validate the PR title"
 fi
 
 # automerge
